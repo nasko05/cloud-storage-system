@@ -1,0 +1,539 @@
+AWSTemplateFormatVersion: "2010-09-09"
+Description: >
+  Personal Cloud Storage System - Serverless architecture with API Gateway HTTP API,
+  Cognito JWT authentication, Lambda microservices, S3 for object storage, and
+  DynamoDB for metadata. Optimized for ~1TB personal/family use in eu-central-1.
+
+Parameters:
+  EnvironmentName:
+    Type: String
+    Default: dev
+    AllowedPattern: ^[a-z0-9-]+$
+    Description: Environment prefix for resource names (lowercase, alphanumeric, hyphens only).
+  
+  AllowedOrigins:
+    Type: String
+    Default: "*"
+    Description: CORS allowed origins. Use specific domain in production (e.g., https://myapp.example.com).
+  
+  PresignedUrlExpirySeconds:
+    Type: Number
+    Default: 3600
+    MinValue: 300
+    MaxValue: 43200
+    Description: Presigned URL expiry time in seconds (default 1 hour, max 12 hours).
+  
+  LogRetentionDays:
+    Type: Number
+    Default: 30
+    AllowedValues: [1, 3, 5, 7, 14, 30, 60, 90, 120, 150, 180, 365, 400, 545, 731, 1827, 3653]
+    Description: CloudWatch Logs retention period in days.
+
+  ShareExpiryDays:
+    Type: Number
+    Default: 30
+    MinValue: 1
+    MaxValue: 365
+    Description: Number of days before share links auto-expire (TTL). Set to 365 for long-term shares.
+
+Resources:
+  #############################################################################
+  # S3 BUCKET - Object Storage with Lifecycle Rules
+  #############################################################################
+  CloudStorageBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub "${EnvironmentName}-cloudstorage-${AWS::AccountId}-${AWS::Region}"
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+            BucketKeyEnabled: true
+      VersioningConfiguration:
+        Status: Enabled
+      LifecycleConfiguration:
+        Rules:
+          - Id: UseIntelligentTiering
+            Status: Enabled
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: 1
+          - Id: ArchiveOldVersions
+            Status: Enabled
+            NoncurrentVersionTransitions:
+              - StorageClass: GLACIER
+                TransitionInDays: 30
+          - Id: CleanupIncompleteUploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+          - Id: DeleteOldVersions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: 180
+      CorsConfiguration:
+        CorsRules:
+          - AllowedHeaders: ["*"]
+            AllowedMethods: [GET, PUT, POST, HEAD]
+            AllowedOrigins: [!Ref AllowedOrigins]
+            ExposedHeaders: [ETag, x-amz-meta-custom-header]
+            MaxAge: 3600
+
+  #############################################################################
+  # DYNAMODB TABLE - Metadata & ACLs (Single Table Design with TTL)
+  #############################################################################
+  MetadataTable:
+    Type: AWS::DynamoDB::Table
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      TableName: !Sub "${EnvironmentName}-metadata-table"
+      BillingMode: PAY_PER_REQUEST
+      SSESpecification:
+        SSEEnabled: true
+        SSEType: KMS
+      PointInTimeRecoverySpecification:
+        PointInTimeRecoveryEnabled: true
+      TimeToLiveSpecification:
+        AttributeName: ttl
+        Enabled: true
+      AttributeDefinitions:
+        - AttributeName: pk
+          AttributeType: S
+        - AttributeName: sk
+          AttributeType: S
+        - AttributeName: gsi1pk
+          AttributeType: S
+        - AttributeName: gsi1sk
+          AttributeType: S
+      KeySchema:
+        - AttributeName: pk
+          KeyType: HASH
+        - AttributeName: sk
+          KeyType: RANGE
+      GlobalSecondaryIndexes:
+        - IndexName: GSI1
+          KeySchema:
+            - AttributeName: gsi1pk
+              KeyType: HASH
+            - AttributeName: gsi1sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+      Tags:
+        - Key: Environment
+          Value: !Ref EnvironmentName
+
+  #############################################################################
+  # COGNITO - User Pool & App Client
+  #############################################################################
+  UserPool:
+    Type: AWS::Cognito::UserPool
+    Properties:
+      UserPoolName: !Sub "${EnvironmentName}-cloudstorage-userpool"
+      AutoVerifiedAttributes:
+        - email
+      UsernameAttributes:
+        - email
+      UsernameConfiguration:
+        CaseSensitive: false
+      Policies:
+        PasswordPolicy:
+          MinimumLength: 12
+          RequireLowercase: true
+          RequireUppercase: true
+          RequireNumbers: true
+          RequireSymbols: true
+          TemporaryPasswordValidityDays: 7
+      AccountRecoverySetting:
+        RecoveryMechanisms:
+          - Name: verified_email
+            Priority: 1
+      Schema:
+        - Name: email
+          Required: true
+          Mutable: true
+        - Name: name
+          Required: false
+          Mutable: true
+      UserPoolTags:
+        Environment: !Ref EnvironmentName
+
+  UserPoolDomain:
+    Type: AWS::Cognito::UserPoolDomain
+    Properties:
+      Domain: !Sub "${EnvironmentName}-cloudstorage-${AWS::AccountId}"
+      UserPoolId: !Ref UserPool
+
+  UserPoolClient:
+    Type: AWS::Cognito::UserPoolClient
+    Properties:
+      ClientName: !Sub "${EnvironmentName}-cloudstorage-client"
+      UserPoolId: !Ref UserPool
+      GenerateSecret: false
+      ExplicitAuthFlows:
+        - ALLOW_USER_SRP_AUTH
+        - ALLOW_REFRESH_TOKEN_AUTH
+      PreventUserExistenceErrors: ENABLED
+      AccessTokenValidity: 1
+      IdTokenValidity: 1
+      RefreshTokenValidity: 30
+      TokenValidityUnits:
+        AccessToken: hours
+        IdToken: hours
+        RefreshToken: days
+      AllowedOAuthFlows:
+        - code
+      AllowedOAuthScopes:
+        - email
+        - openid
+        - profile
+      AllowedOAuthFlowsUserPoolClient: true
+      CallbackURLs:
+        - "http://localhost:3000/callback"
+        - "https://localhost:3000/callback"
+      LogoutURLs:
+        - "http://localhost:3000/logout"
+        - "https://localhost:3000/logout"
+      SupportedIdentityProviders:
+        - COGNITO
+
+  #############################################################################
+  # CLOUDWATCH LOG GROUPS - With Retention
+  #############################################################################
+  UploadFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-upload-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
+  DownloadFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-download-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
+  #############################################################################
+  # IAM ROLES - Least Privilege per Lambda
+  #############################################################################
+  UploadLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-upload-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: UploadLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-upload-fn:*"
+              - Sid: S3UploadAccess
+                Effect: Allow
+                Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:ListBucket
+                  - s3:DeleteObject
+                  - s3:AbortMultipartUpload
+                  - s3:ListMultipartUploadParts
+                Resource:
+                  - !GetAtt CloudStorageBucket.Arn
+                  - !Sub "${CloudStorageBucket.Arn}/*"
+              - Sid: DynamoDBWriteAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt MetadataTable.Arn
+                  - !Sub "${MetadataTable.Arn}/index/*"
+
+  DownloadLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-download-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DownloadLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-download-fn:*"
+              - Sid: S3DownloadAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt CloudStorageBucket.Arn
+                  - !Sub "${CloudStorageBucket.Arn}/*"
+              - Sid: DynamoDBReadAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt MetadataTable.Arn
+                  - !Sub "${MetadataTable.Arn}/index/*"
+
+  #############################################################################
+  # LAMBDA FUNCTIONS
+  #############################################################################
+  UploadFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: UploadFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-upload-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt UploadLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTable
+          PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
+          SHARE_EXPIRY_DAYS: !Ref ShareExpiryDays
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  DownloadFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DownloadFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-download-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt DownloadLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTable
+          PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  #############################################################################
+  # API GATEWAY HTTP API
+  #############################################################################
+  HttpApi:
+    Type: AWS::ApiGatewayV2::Api
+    Properties:
+      Name: !Sub "${EnvironmentName}-cloudstorage-api"
+      ProtocolType: HTTP
+      Description: Cloud Storage HTTP API with JWT authentication
+      CorsConfiguration:
+        AllowOrigins:
+          - !Ref AllowedOrigins
+        AllowMethods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+        AllowHeaders:
+          - Content-Type
+          - Authorization
+          - X-Amz-Date
+          - X-Api-Key
+        ExposeHeaders:
+          - X-Request-Id
+        MaxAge: 86400
+        AllowCredentials: false
+
+  JwtAuthorizer:
+    Type: AWS::ApiGatewayV2::Authorizer
+    Properties:
+      ApiId: !Ref HttpApi
+      AuthorizerType: JWT
+      Name: !Sub "${EnvironmentName}-jwt-authorizer"
+      IdentitySource:
+        - "$request.header.Authorization"
+      JwtConfiguration:
+        Audience:
+          - !Ref UserPoolClient
+        Issuer: !Sub "https://cognito-idp.${AWS::Region}.amazonaws.com/${UserPool}"
+
+  ApiStage:
+    Type: AWS::ApiGatewayV2::Stage
+    Properties:
+      ApiId: !Ref HttpApi
+      StageName: "$default"
+      AutoDeploy: true
+      DefaultRouteSettings:
+        ThrottlingBurstLimit: 100
+        ThrottlingRateLimit: 50
+      AccessLogSettings:
+        DestinationArn: !GetAtt ApiAccessLogGroup.Arn
+        Format: '{"requestId":"$context.requestId","ip":"$context.identity.sourceIp","requestTime":"$context.requestTime","httpMethod":"$context.httpMethod","routeKey":"$context.routeKey","status":"$context.status","responseLength":"$context.responseLength","errorMessage":"$context.error.message"}'
+
+  ApiAccessLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/apigateway/${EnvironmentName}-cloudstorage-api"
+      RetentionInDays: !Ref LogRetentionDays
+
+  #############################################################################
+  # API INTEGRATIONS
+  #############################################################################
+  UploadIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt UploadFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  DownloadIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt DownloadFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  #############################################################################
+  # API ROUTES
+  #############################################################################
+  UploadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /upload"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${UploadIntegration}"
+
+  DownloadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /download"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DownloadIntegration}"
+
+  ListFilesRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /files"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${UploadIntegration}"
+
+  #############################################################################
+  # LAMBDA PERMISSIONS
+  #############################################################################
+  UploadFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref UploadFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  DownloadFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DownloadFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+#############################################################################
+# OUTPUTS
+#############################################################################
+Outputs:
+  ApiEndpoint:
+    Description: HTTP API endpoint URL
+    Value: !Sub "https://${HttpApi}.execute-api.${AWS::Region}.amazonaws.com"
+    Export:
+      Name: !Sub "${EnvironmentName}-ApiEndpoint"
+
+  S3BucketName:
+    Description: S3 bucket name for file storage
+    Value: !Ref CloudStorageBucket
+    Export:
+      Name: !Sub "${EnvironmentName}-S3BucketName"
+
+  S3BucketArn:
+    Description: S3 bucket ARN
+    Value: !GetAtt CloudStorageBucket.Arn
+
+  DynamoDBTableName:
+    Description: DynamoDB table name for metadata
+    Value: !Ref MetadataTable
+    Export:
+      Name: !Sub "${EnvironmentName}-DynamoDBTableName"
+
+  DynamoDBTableArn:
+    Description: DynamoDB table ARN
+    Value: !GetAtt MetadataTable.Arn
+
+  UserPoolId:
+    Description: Cognito User Pool ID
+    Value: !Ref UserPool
+    Export:
+      Name: !Sub "${EnvironmentName}-UserPoolId"
+
+  UserPoolClientId:
+    Description: Cognito User Pool Client ID
+    Value: !Ref UserPoolClient
+    Export:
+      Name: !Sub "${EnvironmentName}-UserPoolClientId"
+
+  UserPoolDomain:
+    Description: Cognito User Pool Domain for hosted UI
+    Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com"
+
+  CognitoLoginUrl:
+    Description: Cognito Hosted UI Login URL
+    Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com/login?client_id=${UserPoolClient}&response_type=code&scope=email+openid+profile&redirect_uri=http://localhost:3000/callback"
+
+  UploadFunctionArn:
+    Description: Upload Lambda function ARN
+    Value: !GetAtt UploadFunction.Arn
+
+  DownloadFunctionArn:
+    Description: Download Lambda function ARN
+    Value: !GetAtt DownloadFunction.Arn
