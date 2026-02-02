@@ -27,7 +27,7 @@ mkdir -p "$BUILD_DIR"
 
 echo "Packaging Upload Lambda..."
 cd lambdas/upload
-zip -rq "../../$BUILD_DIR/upload-lambda.zip" handler.py
+zip -rq "../../$BUILD_DIR/upload-lambda.zip" *.py
 cd ../..
 
 echo "Packaging Download Lambda..."
