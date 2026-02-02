@@ -27,12 +27,16 @@ mkdir -p "$BUILD_DIR"
 
 echo "Packaging Upload Lambda..."
 cd lambdas/upload
+cp ../shared/*.py .
 zip -rq "../../$BUILD_DIR/upload-lambda.zip" *.py
+rm -f common.py
 cd ../..
 
 echo "Packaging Download Lambda..."
 cd lambdas/download
-zip -rq "../../$BUILD_DIR/download-lambda.zip" handler.py
+cp ../shared/*.py .
+zip -rq "../../$BUILD_DIR/download-lambda.zip" *.py
+rm -f common.py
 cd ../..
 
 ARTIFACT_BUCKET="${ENV_NAME}-cloudstorage-artifacts-${ACCOUNT_ID}-${REGION}"
