@@ -123,11 +123,17 @@ function App() {
   const handleDelete = async (fileId) => {
     if (!window.confirm('Delete this file?')) return;
     setLoading(true);
+    setError('');
     try {
-      await deleteFile(fileId);
-      loadFiles();
+      const result = await deleteFile(fileId);
+      if (result.error) {
+        setError('Delete failed: ' + result.error);
+      } else {
+        // Remove from local state immediately for better UX
+        setFiles(files.filter(f => f.fileId !== fileId));
+      }
     } catch (e) {
-      setError('Delete failed');
+      setError('Delete failed: ' + e.message);
     }
     setLoading(false);
   };

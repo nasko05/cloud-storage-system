@@ -80,10 +80,18 @@ Resources:
               NoncurrentDays: 180
       CorsConfiguration:
         CorsRules:
-          - AllowedHeaders: ["*"]
-            AllowedMethods: [GET, PUT, POST, HEAD]
-            AllowedOrigins: [!Ref AllowedOrigins]
-            ExposedHeaders: [ETag, x-amz-meta-custom-header]
+          - AllowedHeaders:
+              - "*"
+            AllowedMethods:
+              - GET
+              - PUT
+              - POST
+              - DELETE
+              - HEAD
+            AllowedOrigins:
+              - "*"
+            ExposedHeaders:
+              - ETag
             MaxAge: 3600
 
   #############################################################################

@@ -2,9 +2,14 @@ import json
 import os
 import time
 import boto3
+from botocore.config import Config
+from decimal import Decimal
 from boto3.dynamodb.conditions import Key
 
-s3 = boto3.client('s3')
+# Use regional S3 endpoint for presigned URLs
+region = os.environ.get('AWS_REGION', 'eu-central-1')
+s3_config = Config(signature_version='s3v4', s3={'addressing_style': 'virtual'})
+s3 = boto3.client('s3', region_name=region, config=s3_config)
 dynamodb = boto3.resource('dynamodb')
 
 BUCKET = os.environ['BUCKET_NAME']
@@ -12,6 +17,13 @@ TABLE_NAME = os.environ['METADATA_TABLE_NAME']
 EXPIRY = int(os.environ.get('PRESIGNED_URL_EXPIRY', 3600))
 
 table = dynamodb.Table(TABLE_NAME)
+
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
 
 
 def handler(event, context):
@@ -114,5 +126,5 @@ def response(status_code, body):
     return {
         'statusCode': status_code,
         'headers': {'Content-Type': 'application/json'},
-        'body': json.dumps(body)
+        'body': json.dumps(body, cls=DecimalEncoder)
     }

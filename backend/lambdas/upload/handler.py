@@ -4,11 +4,15 @@ import time
 import random
 import string
 import boto3
+from botocore.config import Config
 from decimal import Decimal
 from datetime import datetime
 from boto3.dynamodb.conditions import Key
 
-s3 = boto3.client('s3')
+# Use regional S3 endpoint for presigned URLs
+region = os.environ.get('AWS_REGION', 'eu-central-1')
+s3_config = Config(signature_version='s3v4', s3={'addressing_style': 'virtual'})
+s3 = boto3.client('s3', region_name=region, config=s3_config)
 dynamodb = boto3.resource('dynamodb')
 
 BUCKET = os.environ['BUCKET_NAME']
@@ -217,8 +221,7 @@ def upload_file(user_id, user_email, body):
         'put_object',
         Params={
             'Bucket': BUCKET,
-            'Key': s3_key,
-            'ContentType': content_type
+            'Key': s3_key
         },
         ExpiresIn=EXPIRY
     )
