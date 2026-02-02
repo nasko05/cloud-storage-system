@@ -4,6 +4,7 @@ import time
 import random
 import string
 import boto3
+from decimal import Decimal
 from datetime import datetime
 from boto3.dynamodb.conditions import Key
 
@@ -16,6 +17,13 @@ EXPIRY = int(os.environ.get('PRESIGNED_URL_EXPIRY', 3600))
 SHARE_EXPIRY_DAYS = int(os.environ.get('SHARE_EXPIRY_DAYS', 30))
 
 table = dynamodb.Table(TABLE_NAME)
+
+
+class DecimalEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, Decimal):
+            return int(obj) if obj % 1 == 0 else float(obj)
+        return super().default(obj)
 
 
 def handler(event, context):
@@ -52,7 +60,7 @@ def response(status_code, body):
     return {
         'statusCode': status_code,
         'headers': {'Content-Type': 'application/json'},
-        'body': json.dumps(body)
+        'body': json.dumps(body, cls=DecimalEncoder)
     }
 
 

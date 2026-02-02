@@ -14,6 +14,8 @@ function App() {
   const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'confirm'
   const [pendingEmail, setPendingEmail] = useState('');
 
+  const [uploadProgress, setUploadProgress] = useState('');
+
   useEffect(() => {
     getToken().then(t => { if (t) { setToken(t); loadFiles(); } });
   }, []);
@@ -77,17 +79,35 @@ function App() {
 
 
   const handleUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+    const selectedFiles = Array.from(e.target.files);
+    if (selectedFiles.length === 0) return;
+    
     setLoading(true);
     setError('');
-    try {
-      await uploadFile(file);
-      loadFiles();
-    } catch (e) {
-      setError('Upload failed: ' + e.message);
+    setUploadProgress('');
+    
+    let successCount = 0;
+    let failCount = 0;
+    
+    for (let i = 0; i < selectedFiles.length; i++) {
+      const file = selectedFiles[i];
+      setUploadProgress(`Uploading ${i + 1}/${selectedFiles.length}: ${file.name}`);
+      try {
+        await uploadFile(file);
+        successCount++;
+      } catch (e) {
+        failCount++;
+        console.error(`Failed to upload ${file.name}:`, e);
+      }
     }
+    
+    setUploadProgress('');
+    if (failCount > 0) {
+      setError(`Uploaded ${successCount} files, ${failCount} failed`);
+    }
+    loadFiles();
     setLoading(false);
+    e.target.value = ''; // Reset input
   };
 
   const handleDownload = async (fileId, filename) => {
@@ -159,13 +179,14 @@ function App() {
       
       <div className="upload-section">
         <label className="upload-btn">
-          Upload File
-          <input type="file" onChange={handleUpload} hidden />
+          Upload Files
+          <input type="file" multiple onChange={handleUpload} hidden />
         </label>
       </div>
 
       {error && <p className="error">{error}</p>}
-      {loading && <p>Loading...</p>}
+      {uploadProgress && <p className="progress">{uploadProgress}</p>}
+      {loading && !uploadProgress && <p>Loading...</p>}
 
       <div className="file-list">
         {files.length === 0 ? (

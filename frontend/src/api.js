@@ -20,14 +20,25 @@ export const getUploadUrl = (filename, contentType, size) =>
   apiCall('/upload', { filename, contentType, size });
 
 export const uploadFile = async (file) => {
-  const { uploadUrl, fileId, error } = await getUploadUrl(file.name, file.type, file.size);
+  let contentType = file.type || 'application/octet-stream';
+  
+  // Force correct content types for common files
+  if (file.name.toLowerCase().endsWith('.pdf')) {
+    contentType = 'application/pdf';
+  }
+  
+  const { uploadUrl, fileId, error } = await getUploadUrl(file.name, contentType, file.size);
   if (error) throw new Error(error);
   
-  await fetch(uploadUrl, {
+  const response = await fetch(uploadUrl, {
     method: 'PUT',
-    headers: { 'Content-Type': file.type },
     body: file
   });
+  
+  if (!response.ok) {
+    throw new Error(`Upload failed: ${response.status}`);
+  }
+  
   return fileId;
 };
 
