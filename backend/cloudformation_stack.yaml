@@ -273,6 +273,7 @@ Resources:
                   - dynamodb:DeleteItem
                   - dynamodb:GetItem
                   - dynamodb:Query
+                  - dynamodb:BatchWriteItem
                 Resource:
                   - !GetAtt MetadataTable.Arn
                   - !Sub "${MetadataTable.Arn}/index/*"
