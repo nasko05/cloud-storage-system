@@ -210,8 +210,7 @@ def upload_file(user_id, user_email, body):
         Params={
             'Bucket': BUCKET,
             'Key': s3_key,
-            'ContentType': content_type,
-            'Metadata': {'owner-id': user_id, 'file-id': file_id}
+            'ContentType': content_type
         },
         ExpiresIn=EXPIRY
     )

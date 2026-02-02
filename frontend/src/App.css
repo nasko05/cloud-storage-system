@@ -84,3 +84,21 @@ button.delete:hover { background: #c82333; }
 .filename { font-weight: 500; }
 .meta { font-size: 12px; color: #666; }
 .file-actions { display: flex; gap: 8px; }
+
+
+.switch-auth {
+  margin-top: 1rem;
+  color: #0066cc;
+  cursor: pointer;
+  text-align: center;
+}
+
+.switch-auth:hover {
+  text-decoration: underline;
+}
+
+.login-form p {
+  text-align: center;
+  margin-bottom: 0.5rem;
+  color: #666;
+}

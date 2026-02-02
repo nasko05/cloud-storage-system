@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { login, logout, getToken } from './auth';
+import { login, logout, getToken, register, confirmRegistration } from './auth';
 import { listFiles, uploadFile, getDownloadUrl, deleteFile } from './api';
 import './App.css';
 
@@ -7,9 +7,12 @@ function App() {
   const [token, setToken] = useState(null);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [confirmCode, setConfirmCode] = useState('');
   const [files, setFiles] = useState([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [authMode, setAuthMode] = useState('login'); // 'login', 'register', 'confirm'
+  const [pendingEmail, setPendingEmail] = useState('');
 
   useEffect(() => {
     getToken().then(t => { if (t) { setToken(t); loadFiles(); } });
@@ -33,6 +36,34 @@ function App() {
       const t = await login(email, password);
       setToken(t);
       loadFiles();
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleRegister = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await register(email, password);
+      setPendingEmail(email);
+      setAuthMode('confirm');
+      setEmail('');
+      setPassword('');
+    } catch (e) {
+      setError(e.message);
+    }
+  };
+
+  const handleConfirm = async (e) => {
+    e.preventDefault();
+    setError('');
+    try {
+      await confirmRegistration(pendingEmail, confirmCode);
+      setAuthMode('login');
+      setConfirmCode('');
+      setError('');
+      alert('Registration confirmed! You can now login.');
     } catch (e) {
       setError(e.message);
     }
@@ -88,14 +119,32 @@ function App() {
   };
 
   if (!token) {
+    if (authMode === 'confirm') {
+      return (
+        <div className="container">
+          <h1>Personal Drive</h1>
+          <form onSubmit={handleConfirm} className="login-form">
+            <p>Check your email for a verification code</p>
+            <input type="text" placeholder="Verification Code" value={confirmCode} onChange={e => setConfirmCode(e.target.value)} required />
+            <button type="submit">Confirm</button>
+            {error && <p className="error">{error}</p>}
+            <p className="switch-auth" onClick={() => setAuthMode('login')}>Back to Login</p>
+          </form>
+        </div>
+      );
+    }
+
     return (
       <div className="container">
         <h1>Personal Drive</h1>
-        <form onSubmit={handleLogin} className="login-form">
+        <form onSubmit={authMode === 'login' ? handleLogin : handleRegister} className="login-form">
           <input type="email" placeholder="Email" value={email} onChange={e => setEmail(e.target.value)} required />
           <input type="password" placeholder="Password" value={password} onChange={e => setPassword(e.target.value)} required />
-          <button type="submit">Login</button>
+          <button type="submit">{authMode === 'login' ? 'Login' : 'Register'}</button>
           {error && <p className="error">{error}</p>}
+          <p className="switch-auth" onClick={() => setAuthMode(authMode === 'login' ? 'register' : 'login')}>
+            {authMode === 'login' ? "Don't have an account? Register" : 'Already have an account? Login'}
+          </p>
         </form>
       </div>
     );
