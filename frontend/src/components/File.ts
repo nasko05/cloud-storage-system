@@ -9,6 +9,7 @@ import {
   Typography
 } from '@mui/material';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
+import { getExtension } from '../service/fileUtils';
 
 export interface FileShape {
   fileId: string;
@@ -153,9 +154,21 @@ export class FileColumnsFactory {
           React.createElement(FileItem, { file: params.row.file })
       },
       {
+        field: 'fileextension',
+        headerName: 'Extension',
+        flex: 0.45,
+        sortable: true,
+        valueGetter: (params) => getExtension(params.row.file.filename) ?? 'Unknown',
+        renderCell: (params: GridRenderCellParams<FileGridRow>) =>
+          React.createElement(Chip, {
+            label: params.value ?? 'Unknown',
+            size: 'small'
+          })
+      },
+      {  
         field: 'size',
         headerName: 'Size',
-        width: 140,
+        flex: 0.45,
         type: 'number',
         valueGetter: (params) => params.row.file.size,
         renderCell: (params: GridRenderCellParams<FileGridRow>) =>
