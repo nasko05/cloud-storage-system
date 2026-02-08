@@ -22,6 +22,12 @@ interface DownloadUrlResult extends ApiResult {
   downloadUrl?: string;
 }
 
+interface CreateFolderResult extends ApiResult {
+  folderId?: string;
+  folderName?: string;
+  path?: string;
+}
+
 class DriveApiClient {
   public static async call<T extends ApiResult>(endpoint: string, body: ApiBody): Promise<T> {
     const token = await getToken();
@@ -38,8 +44,18 @@ class DriveApiClient {
   }
 }
 
-export const listFiles = async (): Promise<ListFilesResult> =>
-  DriveApiClient.call<ListFilesResult>('/upload', { action: 'list' });
+export const listFiles = async (folder?: string): Promise<ListFilesResult> =>
+  DriveApiClient.call<ListFilesResult>('/upload', { action: 'list', folder });
+
+export const createFolder = async (
+  folderName: string,
+  path?: string
+): Promise<CreateFolderResult> =>
+  DriveApiClient.call<CreateFolderResult>('/upload', {
+    action: 'create-folder',
+    folderName,
+    path
+  });
 
 const getUploadUrl = async (
   filename: string,
