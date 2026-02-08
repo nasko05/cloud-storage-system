@@ -8,6 +8,10 @@ import {
   CardContent,
   Container,
   CssBaseline,
+  Dialog,
+  DialogActions,
+  DialogContent,
+  DialogTitle,
   Paper,
   Stack,
   TextField,
@@ -16,12 +20,13 @@ import {
   Toolbar,
   Typography
 } from '@mui/material';
+import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
-import { uploadFile } from './api';
+import { createFolder, uploadFile } from './api';
 import { fetchFiles, getFileDownloadUrl, deleteFileResult } from './service/driveService';
 import { DriveFile, FileColumnsFactory, FileGridRow } from './components/File';
 import { GridLayout, type GridSize } from './components/GridLayout';
@@ -63,6 +68,9 @@ function App(): JSX.Element {
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewPrefs().viewMode);
   const [gridSize, setGridSize] = useState<GridSize>(() => readViewPrefs().gridSize);
+  const [createFolderOpen, setCreateFolderOpen] = useState(false);
+  const [newFolderName, setNewFolderName] = useState('');
+  const [newFolderParentPath, setNewFolderParentPath] = useState('');
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -87,6 +95,37 @@ function App(): JSX.Element {
     setFiles(result.files);
     if (result.error) setError(result.error);
     setLoading(false);
+  };
+
+  const handleCreateFolderOpen = (): void => {
+    setNewFolderName('');
+    setNewFolderParentPath('');
+    setCreateFolderOpen(true);
+  };
+
+  const handleCreateFolderClose = (): void => {
+    setCreateFolderOpen(false);
+  };
+
+  const handleCreateFolderSubmit = async (): Promise<void> => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setError('Folder name is required');
+      return;
+    }
+    setError('');
+    try {
+      const result = await createFolder(name, newFolderParentPath.trim() || undefined);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      handleCreateFolderClose();
+      await loadFiles();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create folder';
+      setError(message);
+    }
   };
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -304,7 +343,7 @@ function App(): JSX.Element {
       </Paper>
 
       <Paper elevation={1} sx={{ borderRadius: 3, p: 2.5 }}>
-        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems="center">
+        <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems="center" flexWrap="wrap">
           <Button
             component="label"
             variant="contained"
@@ -314,11 +353,50 @@ function App(): JSX.Element {
             Upload Files
             <input type="file" hidden multiple onChange={handleUpload} />
           </Button>
-          <Typography variant="body2" color="text.secondary">
+          <Button
+            variant="outlined"
+            startIcon={<CreateNewFolderRoundedIcon />}
+            onClick={handleCreateFolderOpen}
+            disabled={loading}
+          >
+            New folder
+          </Button>
+          <Typography variant="body2" color="text.secondary" sx={{ width: { xs: '100%', sm: 'auto' } }}>
             Upload multiple files in a single batch.
           </Typography>
         </Stack>
       </Paper>
+
+      <Dialog open={createFolderOpen} onClose={handleCreateFolderClose} maxWidth="xs" fullWidth>
+        <DialogTitle>New folder</DialogTitle>
+        <DialogContent>
+          <Stack spacing={2} sx={{ pt: 1 }}>
+            <TextField
+              autoFocus
+              label="Folder name"
+              value={newFolderName}
+              onChange={(e) => setNewFolderName(e.target.value)}
+              placeholder="e.g. Documents"
+              fullWidth
+              required
+            />
+            <TextField
+              label="Parent path (optional)"
+              value={newFolderParentPath}
+              onChange={(e) => setNewFolderParentPath(e.target.value)}
+              placeholder="e.g. / or /Documents"
+              fullWidth
+              helperText="Leave empty to create at root. Use / for root or e.g. /Documents for nested."
+            />
+          </Stack>
+        </DialogContent>
+        <DialogActions>
+          <Button onClick={handleCreateFolderClose}>Cancel</Button>
+          <Button onClick={handleCreateFolderSubmit} variant="contained">
+            Create
+          </Button>
+        </DialogActions>
+      </Dialog>
 
       {error && <Alert severity="error">{error}</Alert>}
       {uploadProgress && <Alert severity="info">{uploadProgress}</Alert>}
