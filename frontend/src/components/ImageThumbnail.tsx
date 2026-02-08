@@ -59,13 +59,13 @@ export function ImageThumbnail({
         variant="rectangular"
         width="100%"
         height={100}
-        sx={{ borderRadius: 1, mb: 1 }}
+        sx={{ borderRadius: 1 }}
       />
     );
   }
 
   if (error || !url) {
-    return <Box sx={{ mb: 1 }}>{placeholder}</Box>;
+    return placeholder;
   }
 
   return (
@@ -79,7 +79,6 @@ export function ImageThumbnail({
         height: 100,
         objectFit: 'cover',
         borderRadius: 1,
-        mb: 1,
         display: 'block'
       }}
     />

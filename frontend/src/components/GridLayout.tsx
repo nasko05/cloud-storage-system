@@ -75,15 +75,27 @@ export function GridLayout({
               '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' }
             }}
           >
-            {getDownloadUrl && isImageFilename(file.filename) ? (
-              <ImageThumbnail
-                fileId={file.fileId}
-                filename={file.filename}
-                getDownloadUrl={getDownloadUrl}
-              />
-            ) : (
-              <DynamicRenderedIcon filename={file.filename} iconProps={iconProps} />
-            )}
+            <Box
+              sx={{
+                width: '100%',
+                height: 100,
+                minHeight: 100,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 1
+              }}
+            >
+              {getDownloadUrl && isImageFilename(file.filename) ? (
+                <ImageThumbnail
+                  fileId={file.fileId}
+                  filename={file.filename}
+                  getDownloadUrl={getDownloadUrl}
+                />
+              ) : (
+                <DynamicRenderedIcon filename={file.filename} iconProps={iconProps} />
+              )}
+            </Box>
             <Typography
               variant="body2"
               fontWeight={600}
