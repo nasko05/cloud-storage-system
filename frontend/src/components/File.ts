@@ -9,11 +9,13 @@ import {
   Typography
 } from '@mui/material';
 import type { GridColDef, GridRenderCellParams } from '@mui/x-data-grid';
+import { getExtension } from '../service/fileUtils';
 
 export interface FileShape {
   fileId: string;
   filename: string;
   size: number;
+  createdAt: string;
 }
 
 export interface FileGridRow {
@@ -25,11 +27,12 @@ export class DriveFile {
   public readonly fileId: string;
   public readonly filename: string;
   public readonly size: number;
-
-  public constructor(fileId: string, filename: string, size: number) {
+  public readonly createdAt: string;
+  public constructor(fileId: string, filename: string, size: number, createdAt: string) {
     this.fileId = fileId;
     this.filename = filename;
     this.size = size;
+    this.createdAt = createdAt;
   }
 
   public static fromUnknown(value: unknown): DriveFile | null {
@@ -41,12 +44,13 @@ export class DriveFile {
     if (
       typeof candidate.fileId !== 'string' ||
       typeof candidate.filename !== 'string' ||
-      typeof candidate.size !== 'number'
+      typeof candidate.size !== 'number' ||
+      typeof candidate.createdAt !== 'string'
     ) {
       return null;
     }
 
-    return new DriveFile(candidate.fileId, candidate.filename, candidate.size);
+    return new DriveFile(candidate.fileId, candidate.filename, candidate.size, candidate.createdAt);
   }
 
   public get formattedSize(): string {
@@ -93,8 +97,7 @@ export class FileItem extends React.PureComponent<FileItemProps> {
         Typography,
         { fontWeight: 600, noWrap: true, title: this.props.file.filename },
         this.props.file.filename
-      ),
-      React.createElement(Typography, { variant: 'caption', color: 'text.secondary' }, this.props.file.fileId)
+      )
     );
   }
 }
@@ -145,19 +148,45 @@ export class FileColumnsFactory {
         field: 'filename',
         headerName: 'File',
         flex: 1.6,
-        sortable: false,
+        sortable: true,
+        valueGetter: (params) => params.row.file.filename,
         renderCell: (params: GridRenderCellParams<FileGridRow>) =>
           React.createElement(FileItem, { file: params.row.file })
       },
       {
+        field: 'fileextension',
+        headerName: 'Extension',
+        flex: 0.45,
+        sortable: true,
+        valueGetter: (params) => getExtension(params.row.file.filename) ?? 'Unknown',
+        renderCell: (params: GridRenderCellParams<FileGridRow>) =>
+          React.createElement(Chip, {
+            label: params.value ?? 'Unknown',
+            size: 'small'
+          })
+      },
+      {  
         field: 'size',
         headerName: 'Size',
-        width: 140,
+        flex: 0.45,
         type: 'number',
         valueGetter: (params) => params.row.file.size,
         renderCell: (params: GridRenderCellParams<FileGridRow>) =>
           React.createElement(Chip, {
             label: params.row.file.formattedSize,
+            size: 'small',
+            variant: 'outlined'
+          })
+      },
+      {
+        field: 'date',
+        headerName: 'Date',
+        width: 140,
+        type: 'dateTime',
+        valueGetter: (params) => new Date(params.row.file.createdAt),
+        renderCell: (params: GridRenderCellParams<FileGridRow>) =>
+          React.createElement(Chip, {
+            label: new Date(params.row.file.createdAt).toLocaleString(),
             size: 'small',
             variant: 'outlined'
           })

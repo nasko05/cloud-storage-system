@@ -6,34 +6,47 @@ import {
   Button,
   Card,
   CardContent,
-  CircularProgress,
   Container,
   CssBaseline,
   Paper,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Toolbar,
   Typography
 } from '@mui/material';
+import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
+import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import { DataGrid } from '@mui/x-data-grid';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
-import { deleteFile, getDownloadUrl, listFiles, uploadFile } from './api';
+import { uploadFile } from './api';
+import { fetchFiles, getFileDownloadUrl, deleteFileResult } from './service/driveService';
 import { DriveFile, FileColumnsFactory, FileGridRow } from './components/File';
+import { GridLayout, type GridSize } from './components/GridLayout';
+import { ListLayout } from './components/ListLayout';
 import './App.css';
 
 type AuthMode = 'login' | 'register' | 'confirm';
+type ViewMode = 'grid' | 'list';
 
-class FileCollection {
-  public static fromUnknown(payload: unknown): DriveFile[] {
-    if (!Array.isArray(payload)) {
-      return [];
-    }
+const VIEW_PREFS_KEY = 'driveViewPrefs';
 
-    return payload
-      .map((item) => DriveFile.fromUnknown(item))
-      .filter((item): item is DriveFile => item !== null);
+function readViewPrefs(): { viewMode: ViewMode; gridSize: GridSize } {
+  try {
+    const raw = localStorage.getItem(VIEW_PREFS_KEY);
+    if (!raw) return { viewMode: 'grid', gridSize: 'medium' };
+    const parsed = JSON.parse(raw) as { viewMode?: string; gridSize?: string };
+    const viewMode =
+      parsed.viewMode === 'grid' || parsed.viewMode === 'list' ? parsed.viewMode : 'grid';
+    const gridSize =
+      parsed.gridSize === 'small' || parsed.gridSize === 'medium' || parsed.gridSize === 'large'
+        ? parsed.gridSize
+        : 'medium';
+    return { viewMode, gridSize };
+  } catch {
+    return { viewMode: 'grid', gridSize: 'medium' };
   }
 }
 
@@ -48,6 +61,8 @@ function App(): JSX.Element {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [pendingEmail, setPendingEmail] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<string>('');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => readViewPrefs().viewMode);
+  const [gridSize, setGridSize] = useState<GridSize>(() => readViewPrefs().gridSize);
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -61,18 +76,17 @@ function App(): JSX.Element {
     void bootstrap();
   }, []);
 
+  useEffect(() => {
+    localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify({ viewMode, gridSize }));
+  }, [viewMode, gridSize]);
+
   const loadFiles = async (): Promise<void> => {
     setLoading(true);
     setError('');
-    try {
-      const data = await listFiles();
-      setFiles(FileCollection.fromUnknown(data.files));
-    } catch (caughtError: unknown) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+    const result = await fetchFiles();
+    setFiles(result.files);
+    if (result.error) setError(result.error);
+    setLoading(false);
   };
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -159,16 +173,11 @@ function App(): JSX.Element {
   };
 
   async function handleDownload(file: DriveFile): Promise<void> {
-    try {
-      const { downloadUrl, error: downloadError } = await getDownloadUrl(file.fileId);
-      if (downloadError) {
-        throw new Error(downloadError);
-      }
-
-      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
-    } catch (caughtError: unknown) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Download failed';
-      setError(message);
+    const url = await getFileDownloadUrl(file.fileId);
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      setError('Download failed');
     }
   }
 
@@ -176,22 +185,15 @@ function App(): JSX.Element {
     if (!window.confirm(`Delete "${file.filename}"?`)) {
       return;
     }
-
     setLoading(true);
     setError('');
-    try {
-      const result = await deleteFile(file.fileId);
-      if (result.error) {
-        setError(`Delete failed: ${result.error}`);
-      } else {
-        setFiles((current) => current.filter((entry) => entry.fileId !== file.fileId));
-      }
-    } catch (caughtError: unknown) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Delete failed';
-      setError(message);
-    } finally {
-      setLoading(false);
+    const result = await deleteFileResult(file.fileId);
+    if (result.success) {
+      setFiles((current) => current.filter((entry) => entry.fileId !== file.fileId));
+    } else {
+      setError(result.error ?? 'Delete failed');
     }
+    setLoading(false);
   }
 
   const rows: FileGridRow[] = files.map((file) => file.toGridRow());
@@ -322,35 +324,53 @@ function App(): JSX.Element {
       {uploadProgress && <Alert severity="info">{uploadProgress}</Alert>}
 
       <Paper elevation={1} sx={{ borderRadius: 3, p: 1.5 }}>
-        <Box sx={{ width: '100%' }}>
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            autoHeight
+        <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            onChange={(_, next) => next != null && setViewMode(next)}
+            size="small"
+            aria-label="View mode"
+          >
+            <ToggleButton value="grid" aria-label="Grid view">
+              <GridViewRoundedIcon fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="list" aria-label="List view">
+              <ViewListRoundedIcon fontSize="small" />
+            </ToggleButton>
+          </ToggleButtonGroup>
+          {viewMode === 'grid' && (
+            <ToggleButtonGroup
+              value={gridSize}
+              exclusive
+              onChange={(_, next) => next != null && setGridSize(next)}
+              size="small"
+              aria-label="Grid size"
+            >
+              <ToggleButton value="small" aria-label="Small grid">
+                <GridViewRoundedIcon sx={{ fontSize: 18 }} />
+              </ToggleButton>
+              <ToggleButton value="medium" aria-label="Medium grid">
+                <GridViewRoundedIcon sx={{ fontSize: 24 }} />
+              </ToggleButton>
+              <ToggleButton value="large" aria-label="Large grid">
+                <GridViewRoundedIcon sx={{ fontSize: 30 }} />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          )}
+        </Stack>
+        {viewMode === 'grid' ? (
+          <GridLayout
+            files={files}
             loading={loading}
-            disableRowSelectionOnClick
-            pageSizeOptions={[5, 10, 20]}
-            initialState={{
-              pagination: {
-                paginationModel: { page: 0, pageSize: 10 }
-              }
-            }}
-            slots={{
-              noRowsOverlay: () => (
-                <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-                  <Typography variant="body1" color="text.secondary">
-                    No files yet. Upload something to get started.
-                  </Typography>
-                </Stack>
-              ),
-              loadingOverlay: () => (
-                <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-                  <CircularProgress size={28} />
-                </Stack>
-              )
-            }}
+            onDownload={handleDownload}
+            onDelete={handleDelete}
+            getDownloadUrl={getFileDownloadUrl}
+            gridSize={gridSize}
           />
-        </Box>
+        ) : (
+          <ListLayout rows={rows} columns={columns} loading={loading} />
+        )}
       </Paper>
     </Stack>
   );
