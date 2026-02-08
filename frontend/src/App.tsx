@@ -31,6 +31,25 @@ import './App.css';
 type AuthMode = 'login' | 'register' | 'confirm';
 type ViewMode = 'grid' | 'list';
 
+const VIEW_PREFS_KEY = 'driveViewPrefs';
+
+function readViewPrefs(): { viewMode: ViewMode; gridSize: GridSize } {
+  try {
+    const raw = localStorage.getItem(VIEW_PREFS_KEY);
+    if (!raw) return { viewMode: 'grid', gridSize: 'medium' };
+    const parsed = JSON.parse(raw) as { viewMode?: string; gridSize?: string };
+    const viewMode =
+      parsed.viewMode === 'grid' || parsed.viewMode === 'list' ? parsed.viewMode : 'grid';
+    const gridSize =
+      parsed.gridSize === 'small' || parsed.gridSize === 'medium' || parsed.gridSize === 'large'
+        ? parsed.gridSize
+        : 'medium';
+    return { viewMode, gridSize };
+  } catch {
+    return { viewMode: 'grid', gridSize: 'medium' };
+  }
+}
+
 function App(): JSX.Element {
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState<string>('');
@@ -42,8 +61,8 @@ function App(): JSX.Element {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [pendingEmail, setPendingEmail] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<string>('');
-  const [viewMode, setViewMode] = useState<ViewMode>('grid');
-  const [gridSize, setGridSize] = useState<GridSize>('medium');
+  const [viewMode, setViewMode] = useState<ViewMode>(() => readViewPrefs().viewMode);
+  const [gridSize, setGridSize] = useState<GridSize>(() => readViewPrefs().gridSize);
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -56,6 +75,10 @@ function App(): JSX.Element {
 
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify({ viewMode, gridSize }));
+  }, [viewMode, gridSize]);
 
   const loadFiles = async (): Promise<void> => {
     setLoading(true);
