@@ -6,14 +6,40 @@ A serverless personal cloud storage system (like Google Drive) built on AWS. Des
 
 ```
 personal-drive/
-├── backend/          # AWS infrastructure (CloudFormation, Lambda)
+├── .aws/
+│   └── config.example   # AWS CLI SSO profile template
+├── backend/              # AWS infrastructure (CloudFormation, Lambda)
 │   ├── deploy.sh
 │   ├── cloudformation_stack.yaml
 │   └── lambdas/
-└── frontend/         # React web app
+└── frontend/             # React web app
     ├── src/
     └── public/
 ```
+
+## AWS profile (for deploy scripts)
+
+Backend and frontend `deploy.sh` scripts use the AWS CLI with a named profile (e.g. SSO). Configure it once:
+
+1. **Create or edit your AWS config** (not in this repo):
+   ```bash
+   mkdir -p ~/.aws
+   # Append the example profile block to your config:
+   cat .aws/config.example >> ~/.aws/config
+   # Or copy and paste the [profile ...] section from .aws/config.example into ~/.aws/config
+   ```
+
+2. **Fill in the placeholders** in `~/.aws/config`:
+   - `sso_start_url` — Your IAM Identity Center portal URL (e.g. from IAM Identity Center → Settings → AWS access portal URL).
+   - `sso_account_id` — 12-digit AWS account ID (Console → account dropdown → Account ID).
+   - `sso_role_name` — Permission set name (e.g. `AdministratorAccess`), from IAM Identity Center → Permission sets or the role you pick in the SSO portal.
+
+3. **Log in** when needed:
+   ```bash
+   aws sso login --profile adonev-login
+   ```
+
+Use the same profile name in `frontend/.env` as `AWS_PROFILE` if you use a different name.
 
 ## Quick Start
 

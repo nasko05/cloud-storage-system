@@ -1,9 +1,18 @@
 #!/bin/bash
 set -e
 
-PROFILE="adonev-login"
-ENV_NAME="${1:-dev}"
-REGION="${2:-eu-central-1}"
+# Load env vars from .env (if present)
+if [ -f .env ]; then
+  set -a
+  source .env
+  set +a
+fi
+
+PROFILE="${AWS_PROFILE:-adonev-login}"
+ENV_NAME="${1:-$ENV_NAME}"
+ENV_NAME="${ENV_NAME:-dev}"
+REGION="${2:-$AWS_REGION}"
+REGION="${REGION:-eu-central-1}"
 STACK_NAME="${ENV_NAME}-cloudstorage-frontend"
 
 # Check credentials and auto-login if expired

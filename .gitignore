@@ -1,2 +1,5 @@
 .DS_Store
 docs/
+
+# Local AWS profile (real config belongs in ~/.aws/config)
+/profile
