@@ -6,25 +6,29 @@ import {
   Button,
   Card,
   CardContent,
-  CircularProgress,
   Container,
   CssBaseline,
   Paper,
   Stack,
   TextField,
+  ToggleButton,
+  ToggleButtonGroup,
   Toolbar,
   Typography
 } from '@mui/material';
+import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
+import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
-import { DataGrid } from '@mui/x-data-grid';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
 import { deleteFile, getDownloadUrl, listFiles, uploadFile } from './api';
-import { DensitySelectorToolbar } from './components/DensitySelectorToolbar';
 import { DriveFile, FileColumnsFactory, FileGridRow } from './components/File';
+import { GridLayout } from './components/GridLayout';
+import { ListLayout } from './components/ListLayout';
 import './App.css';
 
 type AuthMode = 'login' | 'register' | 'confirm';
+type ViewMode = 'grid' | 'list';
 
 class FileCollection {
   public static fromUnknown(payload: unknown): DriveFile[] {
@@ -49,6 +53,7 @@ function App(): JSX.Element {
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [pendingEmail, setPendingEmail] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<string>('');
+  const [viewMode, setViewMode] = useState<ViewMode>('grid');
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -323,36 +328,32 @@ function App(): JSX.Element {
       {uploadProgress && <Alert severity="info">{uploadProgress}</Alert>}
 
       <Paper elevation={1} sx={{ borderRadius: 3, p: 1.5 }}>
-        <Box sx={{ width: '100%' }}>
-          <DataGrid
-            rows={rows}
-            columns={columns}
-            autoHeight
+        <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
+          <ToggleButtonGroup
+            value={viewMode}
+            exclusive
+            onChange={(_, next) => next != null && setViewMode(next)}
+            size="small"
+            aria-label="View mode"
+          >
+            <ToggleButton value="grid" aria-label="Grid view">
+              <GridViewRoundedIcon fontSize="small" />
+            </ToggleButton>
+            <ToggleButton value="list" aria-label="List view">
+              <ViewListRoundedIcon fontSize="small" />
+            </ToggleButton>
+          </ToggleButtonGroup>
+        </Stack>
+        {viewMode === 'grid' ? (
+          <GridLayout
+            files={files}
             loading={loading}
-            disableRowSelectionOnClick
-            pageSizeOptions={[5, 10, 20]}
-            initialState={{
-              pagination: {
-                paginationModel: { page: 0, pageSize: 10 }
-              }
-            }}
-            slots={{
-              toolbar: DensitySelectorToolbar,
-              noRowsOverlay: () => (
-                <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-                  <Typography variant="body1" color="text.secondary">
-                    No files yet. Upload something to get started.
-                  </Typography>
-                </Stack>
-              ),
-              loadingOverlay: () => (
-                <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-                  <CircularProgress size={28} />
-                </Stack>
-              )
-            }}
+            onDownload={handleDownload}
+            onDelete={handleDelete}
           />
-        </Box>
+        ) : (
+          <ListLayout rows={rows} columns={columns} loading={loading} />
+        )}
       </Paper>
     </Stack>
   );
