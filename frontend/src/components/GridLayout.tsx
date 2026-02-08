@@ -10,6 +10,7 @@ import {
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
 import { FileActions } from './File';
 import type { DriveFile } from './File';
+import { DynamicRenderedIcon } from './DynamicRenderedIcon';
 
 export interface GridLayoutProps {
   files: DriveFile[];
@@ -72,9 +73,12 @@ export function GridLayout({
               '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' }
             }}
           >
-            <InsertDriveFileRoundedIcon
-              sx={{ fontSize: 48, color: 'action.active', mb: 1 }}
-              aria-hidden
+            <DynamicRenderedIcon
+              filename={file.filename}
+              iconProps={{
+                sx: { fontSize: 48, color: 'action.active', mb: 1 },
+                'aria-hidden': true
+              }}
             />
             <Typography
               variant="body2"
