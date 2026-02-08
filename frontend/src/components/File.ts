@@ -148,6 +148,7 @@ export class FileColumnsFactory {
         headerName: 'File',
         flex: 1.6,
         sortable: true,
+        valueGetter: (params) => params.row.file.filename,
         renderCell: (params: GridRenderCellParams<FileGridRow>) =>
           React.createElement(FileItem, { file: params.row.file })
       },
