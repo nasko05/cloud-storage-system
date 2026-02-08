@@ -28,9 +28,9 @@ def create_folder(user_id, folder_name, parent_path=None):
 
     parent = _normalize_path(parent_path or '')
     full_path = parent if parent == '/' else f'{parent}/{name}'
-    sk_folder = f'FILE#{full_path}/'
+    sk_folder = f'FOLDER#{full_path}'
 
-    # Check if folder or file already exists at this path
+    # Check if folder already exists at this path
     try:
         existing = table.get_item(
             Key={'pk': f'USER#{user_id}', 'sk': sk_folder}
