@@ -6,10 +6,16 @@ import { DynamicRenderedIcon } from './DynamicRenderedIcon';
 import { ImageThumbnail } from './ImageThumbnail';
 import { isImageFilename } from '../service/fileUtils';
 
-const iconProps = {
-  sx: { fontSize: 48, color: 'action.active', mb: 1 },
-  'aria-hidden': true
-} as const;
+export type GridSize = 'small' | 'medium' | 'large';
+
+export const GRID_SIZE_CONFIG: Record<
+  GridSize,
+  { minColumnWidth: number; gap: number; mediaHeight: number; iconFontSize: number; padding: number }
+> = {
+  small: { minColumnWidth: 100, gap: 1, mediaHeight: 64, iconFontSize: 32, padding: 1 },
+  medium: { minColumnWidth: 140, gap: 2, mediaHeight: 100, iconFontSize: 48, padding: 2 },
+  large: { minColumnWidth: 180, gap: 2.5, mediaHeight: 128, iconFontSize: 56, padding: 2.5 }
+};
 
 export interface GridLayoutProps {
   files: DriveFile[];
@@ -18,6 +24,8 @@ export interface GridLayoutProps {
   onDelete: (file: DriveFile) => void;
   /** Required for image thumbnails; if provided, image files will show a preview. */
   getDownloadUrl?: (fileId: string) => Promise<string | undefined | null>;
+  /** Card size in the grid. */
+  gridSize?: GridSize;
 }
 
 export function GridLayout({
@@ -25,8 +33,11 @@ export function GridLayout({
   loading = false,
   onDownload,
   onDelete,
-  getDownloadUrl
+  getDownloadUrl,
+  gridSize = 'medium'
 }: GridLayoutProps): React.ReactElement {
+  const config = GRID_SIZE_CONFIG[gridSize];
+
   if (loading) {
     return (
       <Stack alignItems="center" justifyContent="center" sx={{ py: 6 }}>
@@ -45,12 +56,17 @@ export function GridLayout({
     );
   }
 
+  const iconProps = {
+    sx: { fontSize: config.iconFontSize, color: 'action.active', mb: 1 },
+    'aria-hidden': true
+  } as const;
+
   return (
     <Box
       sx={{
         display: 'grid',
-        gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))',
-        gap: 2
+        gridTemplateColumns: `repeat(auto-fill, minmax(${config.minColumnWidth}px, 1fr))`,
+        gap: config.gap
       }}
     >
       {files.map((file) => (
@@ -71,15 +87,15 @@ export function GridLayout({
               flexDirection: 'column',
               alignItems: 'center',
               justifyContent: 'flex-start',
-              p: 2,
+              p: config.padding,
               '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' }
             }}
           >
             <Box
               sx={{
                 width: '100%',
-                height: 100,
-                minHeight: 100,
+                height: config.mediaHeight,
+                minHeight: config.mediaHeight,
                 display: 'flex',
                 alignItems: 'center',
                 justifyContent: 'center',
@@ -91,6 +107,7 @@ export function GridLayout({
                   fileId={file.fileId}
                   filename={file.filename}
                   getDownloadUrl={getDownloadUrl}
+                  height={config.mediaHeight}
                 />
               ) : (
                 <DynamicRenderedIcon filename={file.filename} iconProps={iconProps} />

@@ -6,12 +6,17 @@ export interface ImageThumbnailProps {
   fileId: string;
   filename: string;
   getDownloadUrl: (fileId: string) => Promise<string | undefined | null>;
+  /** Thumbnail height in px; used when grid size is configurable. */
+  height?: number;
 }
+
+const DEFAULT_THUMBNAIL_HEIGHT = 100;
 
 export function ImageThumbnail({
   fileId,
   filename,
-  getDownloadUrl
+  getDownloadUrl,
+  height = DEFAULT_THUMBNAIL_HEIGHT
 }: ImageThumbnailProps): React.ReactElement {
   const [url, setUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -41,7 +46,7 @@ export function ImageThumbnail({
     <Box
       sx={{
         width: '100%',
-        height: 100,
+        height,
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
@@ -49,7 +54,7 @@ export function ImageThumbnail({
         borderRadius: 1
       }}
     >
-      <InsertDriveFileRoundedIcon sx={{ fontSize: 48, color: 'action.active' }} aria-hidden />
+      <InsertDriveFileRoundedIcon sx={{ fontSize: Math.min(48, height * 0.48), color: 'action.active' }} aria-hidden />
     </Box>
   );
 
@@ -58,7 +63,7 @@ export function ImageThumbnail({
       <Skeleton
         variant="rectangular"
         width="100%"
-        height={100}
+        height={height}
         sx={{ borderRadius: 1 }}
       />
     );
@@ -76,7 +81,7 @@ export function ImageThumbnail({
       loading="lazy"
       sx={{
         width: '100%',
-        height: 100,
+        height,
         objectFit: 'cover',
         borderRadius: 1,
         display: 'block'

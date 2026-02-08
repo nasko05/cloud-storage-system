@@ -24,7 +24,7 @@ import { login, logout, getToken, register, confirmRegistration } from './auth';
 import { uploadFile } from './api';
 import { fetchFiles, getFileDownloadUrl, deleteFileResult } from './service/driveService';
 import { DriveFile, FileColumnsFactory, FileGridRow } from './components/File';
-import { GridLayout } from './components/GridLayout';
+import { GridLayout, type GridSize } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
 import './App.css';
 
@@ -43,6 +43,7 @@ function App(): JSX.Element {
   const [pendingEmail, setPendingEmail] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>('grid');
+  const [gridSize, setGridSize] = useState<GridSize>('medium');
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -300,7 +301,7 @@ function App(): JSX.Element {
       {uploadProgress && <Alert severity="info">{uploadProgress}</Alert>}
 
       <Paper elevation={1} sx={{ borderRadius: 3, p: 1.5 }}>
-        <Stack direction="row" justifyContent="flex-end" sx={{ mb: 1 }}>
+        <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1} sx={{ mb: 1 }}>
           <ToggleButtonGroup
             value={viewMode}
             exclusive
@@ -315,6 +316,25 @@ function App(): JSX.Element {
               <ViewListRoundedIcon fontSize="small" />
             </ToggleButton>
           </ToggleButtonGroup>
+          {viewMode === 'grid' && (
+            <ToggleButtonGroup
+              value={gridSize}
+              exclusive
+              onChange={(_, next) => next != null && setGridSize(next)}
+              size="small"
+              aria-label="Grid size"
+            >
+              <ToggleButton value="small" aria-label="Small grid">
+                <GridViewRoundedIcon sx={{ fontSize: 18 }} />
+              </ToggleButton>
+              <ToggleButton value="medium" aria-label="Medium grid">
+                <GridViewRoundedIcon sx={{ fontSize: 24 }} />
+              </ToggleButton>
+              <ToggleButton value="large" aria-label="Large grid">
+                <GridViewRoundedIcon sx={{ fontSize: 30 }} />
+              </ToggleButton>
+            </ToggleButtonGroup>
+          )}
         </Stack>
         {viewMode === 'grid' ? (
           <GridLayout
@@ -323,6 +343,7 @@ function App(): JSX.Element {
             onDownload={handleDownload}
             onDelete={handleDelete}
             getDownloadUrl={getFileDownloadUrl}
+            gridSize={gridSize}
           />
         ) : (
           <ListLayout rows={rows} columns={columns} loading={loading} />
