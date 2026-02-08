@@ -14,6 +14,7 @@ export interface FileShape {
   fileId: string;
   filename: string;
   size: number;
+  createdAt: string;
 }
 
 export interface FileGridRow {
@@ -25,11 +26,12 @@ export class DriveFile {
   public readonly fileId: string;
   public readonly filename: string;
   public readonly size: number;
-
-  public constructor(fileId: string, filename: string, size: number) {
+  public readonly createdAt: string;
+  public constructor(fileId: string, filename: string, size: number, createdAt: string) {
     this.fileId = fileId;
     this.filename = filename;
     this.size = size;
+    this.createdAt = createdAt;
   }
 
   public static fromUnknown(value: unknown): DriveFile | null {
@@ -41,12 +43,13 @@ export class DriveFile {
     if (
       typeof candidate.fileId !== 'string' ||
       typeof candidate.filename !== 'string' ||
-      typeof candidate.size !== 'number'
+      typeof candidate.size !== 'number' ||
+      typeof candidate.createdAt !== 'string'
     ) {
       return null;
     }
 
-    return new DriveFile(candidate.fileId, candidate.filename, candidate.size);
+    return new DriveFile(candidate.fileId, candidate.filename, candidate.size, candidate.createdAt);
   }
 
   public get formattedSize(): string {
@@ -158,6 +161,19 @@ export class FileColumnsFactory {
         renderCell: (params: GridRenderCellParams<FileGridRow>) =>
           React.createElement(Chip, {
             label: params.row.file.formattedSize,
+            size: 'small',
+            variant: 'outlined'
+          })
+      },
+      {
+        field: 'date',
+        headerName: 'Date',
+        width: 140,
+        type: 'dateTime',
+        valueGetter: (params) => new Date(params.row.file.createdAt),
+        renderCell: (params: GridRenderCellParams<FileGridRow>) =>
+          React.createElement(Chip, {
+            label: new Date(params.row.file.createdAt).toLocaleString(),
             size: 'small',
             variant: 'outlined'
           })
