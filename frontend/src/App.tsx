@@ -21,7 +21,8 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
-import { deleteFile, getDownloadUrl, listFiles, uploadFile } from './api';
+import { uploadFile } from './api';
+import { fetchFiles, getFileDownloadUrl, deleteFileResult } from './service/driveService';
 import { DriveFile, FileColumnsFactory, FileGridRow } from './components/File';
 import { GridLayout } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
@@ -29,18 +30,6 @@ import './App.css';
 
 type AuthMode = 'login' | 'register' | 'confirm';
 type ViewMode = 'grid' | 'list';
-
-class FileCollection {
-  public static fromUnknown(payload: unknown): DriveFile[] {
-    if (!Array.isArray(payload)) {
-      return [];
-    }
-
-    return payload
-      .map((item) => DriveFile.fromUnknown(item))
-      .filter((item): item is DriveFile => item !== null);
-  }
-}
 
 function App(): JSX.Element {
   const [token, setToken] = useState<string | null>(null);
@@ -70,15 +59,10 @@ function App(): JSX.Element {
   const loadFiles = async (): Promise<void> => {
     setLoading(true);
     setError('');
-    try {
-      const data = await listFiles();
-      setFiles(FileCollection.fromUnknown(data.files));
-    } catch (caughtError: unknown) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Failed to load files';
-      setError(message);
-    } finally {
-      setLoading(false);
-    }
+    const result = await fetchFiles();
+    setFiles(result.files);
+    if (result.error) setError(result.error);
+    setLoading(false);
   };
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
@@ -165,16 +149,11 @@ function App(): JSX.Element {
   };
 
   async function handleDownload(file: DriveFile): Promise<void> {
-    try {
-      const { downloadUrl, error: downloadError } = await getDownloadUrl(file.fileId);
-      if (downloadError) {
-        throw new Error(downloadError);
-      }
-
-      window.open(downloadUrl, '_blank', 'noopener,noreferrer');
-    } catch (caughtError: unknown) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Download failed';
-      setError(message);
+    const url = await getFileDownloadUrl(file.fileId);
+    if (url) {
+      window.open(url, '_blank', 'noopener,noreferrer');
+    } else {
+      setError('Download failed');
     }
   }
 
@@ -182,22 +161,15 @@ function App(): JSX.Element {
     if (!window.confirm(`Delete "${file.filename}"?`)) {
       return;
     }
-
     setLoading(true);
     setError('');
-    try {
-      const result = await deleteFile(file.fileId);
-      if (result.error) {
-        setError(`Delete failed: ${result.error}`);
-      } else {
-        setFiles((current) => current.filter((entry) => entry.fileId !== file.fileId));
-      }
-    } catch (caughtError: unknown) {
-      const message = caughtError instanceof Error ? caughtError.message : 'Delete failed';
-      setError(message);
-    } finally {
-      setLoading(false);
+    const result = await deleteFileResult(file.fileId);
+    if (result.success) {
+      setFiles((current) => current.filter((entry) => entry.fileId !== file.fileId));
+    } else {
+      setError(result.error ?? 'Delete failed');
     }
+    setLoading(false);
   }
 
   const rows: FileGridRow[] = files.map((file) => file.toGridRow());
@@ -350,6 +322,7 @@ function App(): JSX.Element {
             loading={loading}
             onDownload={handleDownload}
             onDelete={handleDelete}
+            getDownloadUrl={getFileDownloadUrl}
           />
         ) : (
           <ListLayout rows={rows} columns={columns} loading={loading} />

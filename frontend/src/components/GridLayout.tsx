@@ -1,29 +1,31 @@
 import React from 'react';
-import {
-  Box,
-  Card,
-  CardActionArea,
-  CircularProgress,
-  Stack,
-  Typography
-} from '@mui/material';
-import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
+import { Box, Card, CardActionArea, CircularProgress, Stack, Typography } from '@mui/material';
 import { FileActions } from './File';
 import type { DriveFile } from './File';
 import { DynamicRenderedIcon } from './DynamicRenderedIcon';
+import { ImageThumbnail } from './ImageThumbnail';
+import { isImageFilename } from '../service/fileUtils';
+
+const iconProps = {
+  sx: { fontSize: 48, color: 'action.active', mb: 1 },
+  'aria-hidden': true
+} as const;
 
 export interface GridLayoutProps {
   files: DriveFile[];
   loading?: boolean;
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
+  /** Required for image thumbnails; if provided, image files will show a preview. */
+  getDownloadUrl?: (fileId: string) => Promise<string | undefined | null>;
 }
 
 export function GridLayout({
   files,
   loading = false,
   onDownload,
-  onDelete
+  onDelete,
+  getDownloadUrl
 }: GridLayoutProps): React.ReactElement {
   if (loading) {
     return (
@@ -73,13 +75,15 @@ export function GridLayout({
               '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' }
             }}
           >
-            <DynamicRenderedIcon
-              filename={file.filename}
-              iconProps={{
-                sx: { fontSize: 48, color: 'action.active', mb: 1 },
-                'aria-hidden': true
-              }}
-            />
+            {getDownloadUrl && isImageFilename(file.filename) ? (
+              <ImageThumbnail
+                fileId={file.fileId}
+                filename={file.filename}
+                getDownloadUrl={getDownloadUrl}
+              />
+            ) : (
+              <DynamicRenderedIcon filename={file.filename} iconProps={iconProps} />
+            )}
             <Typography
               variant="body2"
               fontWeight={600}
