@@ -96,8 +96,7 @@ export class FileItem extends React.PureComponent<FileItemProps> {
         Typography,
         { fontWeight: 600, noWrap: true, title: this.props.file.filename },
         this.props.file.filename
-      ),
-      React.createElement(Typography, { variant: 'caption', color: 'text.secondary' }, this.props.file.fileId)
+      )
     );
   }
 }
@@ -148,7 +147,7 @@ export class FileColumnsFactory {
         field: 'filename',
         headerName: 'File',
         flex: 1.6,
-        sortable: false,
+        sortable: true,
         renderCell: (params: GridRenderCellParams<FileGridRow>) =>
           React.createElement(FileItem, { file: params.row.file })
       },

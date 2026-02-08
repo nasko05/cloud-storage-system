@@ -20,6 +20,7 @@ import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { DataGrid } from '@mui/x-data-grid';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
 import { deleteFile, getDownloadUrl, listFiles, uploadFile } from './api';
+import { DensitySelectorToolbar } from './components/DensitySelectorToolbar';
 import { DriveFile, FileColumnsFactory, FileGridRow } from './components/File';
 import './App.css';
 
@@ -336,6 +337,7 @@ function App(): JSX.Element {
               }
             }}
             slots={{
+              toolbar: DensitySelectorToolbar,
               noRowsOverlay: () => (
                 <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
                   <Typography variant="body1" color="text.secondary">
