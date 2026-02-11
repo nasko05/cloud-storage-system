@@ -6,11 +6,23 @@ from boto3.dynamodb.conditions import Key
 from common import s3, table, BUCKET, EXPIRY, response
 
 
+def _normalized_list_path(folder):
+    if folder is None or (isinstance(folder, str) and not folder.strip()):
+        return None
+    path = folder.strip().rstrip('/')
+    return path if path.startswith('/') else f'/{path}'
+
+
 def list_files(user_id, folder=None):
-    prefix = f'FILE#{folder}' if folder else 'FILE#'
-    result = table.query(
-        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(prefix)
+    list_path = _normalized_list_path(folder)
+    is_root = list_path is None or list_path == '/'
+
+    # Files in current directory
+    file_prefix = 'FILE#/' if is_root else f'FILE#{list_path}/'
+    file_result = table.query(
+        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(file_prefix)
     )
+    target_path = '/' if is_root else list_path
     files = [
         {
             'fileId': item['fileId'],
@@ -20,10 +32,42 @@ def list_files(user_id, folder=None):
             'size': item['size'],
             'createdAt': item['createdAt']
         }
-        for item in result.get('Items', [])
-        if item.get('itemType') == 'FILE'
+        for item in file_result.get('Items', [])
+        if item.get('itemType') == 'FILE' and item.get('path') == target_path
     ]
-    return response(200, {'files': files})
+
+    # Folders in current directory (direct children only)
+    folder_prefix = 'FOLDER#/' if is_root else f'FOLDER#{list_path}/'
+    folder_result = table.query(
+        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(folder_prefix)
+    )
+    if is_root:
+        folders = [
+            {
+                'folderId': item['folderId'],
+                'name': item['name'],
+                'path': item['path'],
+                'createdAt': item['createdAt']
+            }
+            for item in folder_result.get('Items', [])
+            if item.get('itemType') == 'FOLDER' and item.get('path', '').count('/') == 1
+        ]
+    else:
+        prefix_with_slash = f'{list_path}/'
+        folders = [
+            {
+                'folderId': item['folderId'],
+                'name': item['name'],
+                'path': item['path'],
+                'createdAt': item['createdAt']
+            }
+            for item in folder_result.get('Items', [])
+            if item.get('itemType') == 'FOLDER'
+            and item.get('path', '').startswith(prefix_with_slash)
+            and item['path'].replace(prefix_with_slash, '').count('/') == 0
+        ]
+
+    return response(200, {'files': files, 'folders': folders})
 
 
 def upload_file(user_id, user_email, body):

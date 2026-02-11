@@ -3,15 +3,22 @@ import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef } from '@mui/x-data-grid';
 import { DensitySelectorToolbar } from './DensitySelectorToolbar';
-import type { FileGridRow } from './File';
+import type { DriveListRow } from './File';
 
 export interface ListLayoutProps {
-  rows: FileGridRow[];
-  columns: GridColDef<FileGridRow>[];
+  /** Unified rows: folders and files in one list. */
+  rows: DriveListRow[];
+  columns: GridColDef<DriveListRow>[];
   loading?: boolean;
 }
 
-export function ListLayout({ rows, columns, loading = false }: ListLayoutProps): React.ReactElement {
+export function ListLayout({
+  rows,
+  columns,
+  loading = false
+}: ListLayoutProps): React.ReactElement {
+  const empty = rows.length === 0;
+
   return (
     <Box sx={{ width: '100%' }}>
       <DataGrid
@@ -31,7 +38,9 @@ export function ListLayout({ rows, columns, loading = false }: ListLayoutProps):
           noRowsOverlay: () => (
             <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
               <Typography variant="body1" color="text.secondary">
-                No files yet. Upload something to get started.
+                {empty
+                  ? 'No files or folders yet. Upload something or create a folder.'
+                  : 'No items to show.'}
               </Typography>
             </Stack>
           ),

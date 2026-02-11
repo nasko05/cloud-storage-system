@@ -4,10 +4,24 @@
  */
 import { deleteFile, getDownloadUrl, listFiles, uploadFile } from '../api';
 import { DriveFile } from '../components/File';
+import type { DriveFolder } from '../components/Folder';
 
 export interface FetchFilesResult {
   files: InstanceType<typeof DriveFile>[];
+  folders: DriveFolder[];
   error?: string;
+}
+
+function parseFolder(item: unknown): DriveFolder | null {
+  if (!item || typeof item !== 'object') return null;
+  const o = item as Record<string, unknown>;
+  if (
+    typeof o.folderId !== 'string' ||
+    typeof o.name !== 'string' ||
+    typeof o.path !== 'string'
+  )
+    return null;
+  return { folderId: o.folderId, name: o.name, path: o.path };
 }
 
 export interface DeleteFileResult {
@@ -31,14 +45,17 @@ export class FileCollection {
   }
 }
 
-export async function fetchFiles(): Promise<FetchFilesResult> {
+export async function fetchFiles(folder?: string): Promise<FetchFilesResult> {
   try {
-    const data = await listFiles();
+    const data = await listFiles(folder);
     const files = FileCollection.fromUnknown(data.files);
-    return { files };
+    const folders = Array.isArray(data.folders)
+      ? data.folders.map(parseFolder).filter((f): f is DriveFolder => f !== null)
+      : [];
+    return { files, folders };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Failed to load files';
-    return { files: [], error: message };
+    return { files: [], folders: [], error: message };
   }
 }
 

@@ -11,6 +11,7 @@ interface ApiResult {
 
 interface ListFilesResult extends ApiResult {
   files?: unknown[];
+  folders?: unknown[];
 }
 
 interface UploadUrlResult extends ApiResult {

@@ -28,7 +28,14 @@ import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
 import { createFolder, uploadFile } from './api';
 import { fetchFiles, getFileDownloadUrl, deleteFileResult } from './service/driveService';
-import { DriveFile, FileColumnsFactory, FileGridRow } from './components/File';
+import type { DriveFolder } from './components/Folder';
+import {
+  DriveFile,
+  type DriveListRow,
+  FileColumnsFactory,
+  FileGridRow,
+  ListColumnsFactory
+} from './components/File';
 import { GridLayout, type GridSize } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
 import './App.css';
@@ -61,6 +68,7 @@ function App(): JSX.Element {
   const [password, setPassword] = useState<string>('');
   const [confirmCode, setConfirmCode] = useState<string>('');
   const [files, setFiles] = useState<DriveFile[]>([]);
+  const [folders, setFolders] = useState<DriveFolder[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
   const [authMode, setAuthMode] = useState<AuthMode>('login');
@@ -68,21 +76,25 @@ function App(): JSX.Element {
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewPrefs().viewMode);
   const [gridSize, setGridSize] = useState<GridSize>(() => readViewPrefs().gridSize);
+  const [currentPath, setCurrentPath] = useState('');
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
-  const [newFolderParentPath, setNewFolderParentPath] = useState('');
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
       const existingToken = await getToken();
       if (existingToken) {
         setToken(existingToken);
-        await loadFiles();
       }
     };
 
     void bootstrap();
   }, []);
+
+  useEffect(() => {
+    if (!token) return;
+    void loadFiles();
+  }, [token, currentPath]);
 
   useEffect(() => {
     localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify({ viewMode, gridSize }));
@@ -91,15 +103,15 @@ function App(): JSX.Element {
   const loadFiles = async (): Promise<void> => {
     setLoading(true);
     setError('');
-    const result = await fetchFiles();
+    const result = await fetchFiles(currentPath || undefined);
     setFiles(result.files);
+    setFolders(result.folders);
     if (result.error) setError(result.error);
     setLoading(false);
   };
 
   const handleCreateFolderOpen = (): void => {
     setNewFolderName('');
-    setNewFolderParentPath('');
     setCreateFolderOpen(true);
   };
 
@@ -115,7 +127,7 @@ function App(): JSX.Element {
     }
     setError('');
     try {
-      const result = await createFolder(name, newFolderParentPath.trim() || undefined);
+      const result = await createFolder(name, currentPath || undefined);
       if (result.error) {
         setError(result.error);
         return;
@@ -240,6 +252,36 @@ function App(): JSX.Element {
     onDownload: handleDownload,
     onDelete: handleDelete
   });
+
+  const listRows: DriveListRow[] = React.useMemo(() => {
+    const folderRows: DriveListRow[] = folders.map((f) => ({
+      id: f.folderId,
+      type: 'folder' as const,
+      folder: f
+    }));
+    const fileRows: DriveListRow[] = files.map((f) => ({
+      id: f.fileId,
+      type: 'file' as const,
+      file: f
+    }));
+    const combined = [...folderRows, ...fileRows];
+    combined.sort((a, b) => {
+      const nameA = a.type === 'folder' ? a.folder.name : a.file.filename;
+      const nameB = b.type === 'folder' ? b.folder.name : b.file.filename;
+      return nameA.localeCompare(nameB, undefined, { sensitivity: 'base' });
+    });
+    return combined;
+  }, [folders, files]);
+
+  const listColumns = React.useMemo(
+    () =>
+      ListColumnsFactory.create({
+        onDownload: handleDownload,
+        onDelete: handleDelete,
+        onFolderClick: (folder) => setCurrentPath(folder.path)
+      }),
+    []
+  );
 
   const authForm = (
     <Card sx={{ maxWidth: 460, mx: 'auto', mt: 12, borderRadius: 3 }}>
@@ -371,6 +413,9 @@ function App(): JSX.Element {
         <DialogTitle>New folder</DialogTitle>
         <DialogContent>
           <Stack spacing={2} sx={{ pt: 1 }}>
+            <Typography variant="body2" color="text.secondary">
+              Create in: {currentPath || '/'}
+            </Typography>
             <TextField
               autoFocus
               label="Folder name"
@@ -379,14 +424,6 @@ function App(): JSX.Element {
               placeholder="e.g. Documents"
               fullWidth
               required
-            />
-            <TextField
-              label="Parent path (optional)"
-              value={newFolderParentPath}
-              onChange={(e) => setNewFolderParentPath(e.target.value)}
-              placeholder="e.g. / or /Documents"
-              fullWidth
-              helperText="Leave empty to create at root. Use / for root or e.g. /Documents for nested."
             />
           </Stack>
         </DialogContent>
@@ -402,6 +439,19 @@ function App(): JSX.Element {
       {uploadProgress && <Alert severity="info">{uploadProgress}</Alert>}
 
       <Paper elevation={1} sx={{ borderRadius: 3, p: 1.5 }}>
+        {currentPath ? (
+          <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
+            <Button
+              size="small"
+              onClick={() => setCurrentPath(currentPath.replace(/\/[^/]+$/, '') || '')}
+            >
+              ↑ Up
+            </Button>
+            <Typography variant="body2" color="text.secondary">
+              {currentPath}
+            </Typography>
+          </Stack>
+        ) : null}
         <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1} sx={{ mb: 1 }}>
           <ToggleButtonGroup
             value={viewMode}
@@ -440,14 +490,16 @@ function App(): JSX.Element {
         {viewMode === 'grid' ? (
           <GridLayout
             files={files}
+            folders={folders}
             loading={loading}
             onDownload={handleDownload}
             onDelete={handleDelete}
+            onFolderClick={(folder) => setCurrentPath(folder.path)}
             getDownloadUrl={getFileDownloadUrl}
             gridSize={gridSize}
           />
         ) : (
-          <ListLayout rows={rows} columns={columns} loading={loading} />
+          <ListLayout rows={listRows} columns={listColumns} loading={loading} />
         )}
       </Paper>
     </Stack>

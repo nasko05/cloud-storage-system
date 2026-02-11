@@ -2,6 +2,8 @@ import React from 'react';
 import { Box, Card, CardActionArea, CircularProgress, Stack, Typography } from '@mui/material';
 import { FileActions } from './File';
 import type { DriveFile } from './File';
+import { FolderIcon } from './Folder';
+import type { DriveFolder } from './Folder';
 import { DynamicRenderedIcon } from './DynamicRenderedIcon';
 import { ImageThumbnail } from './ImageThumbnail';
 import { isImageFilename } from '../service/fileUtils';
@@ -19,9 +21,11 @@ export const GRID_SIZE_CONFIG: Record<
 
 export interface GridLayoutProps {
   files: DriveFile[];
+  folders?: DriveFolder[];
   loading?: boolean;
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
+  onFolderClick?: (folder: DriveFolder) => void;
   /** Required for image thumbnails; if provided, image files will show a preview. */
   getDownloadUrl?: (fileId: string) => Promise<string | undefined | null>;
   /** Card size in the grid. */
@@ -30,9 +34,11 @@ export interface GridLayoutProps {
 
 export function GridLayout({
   files,
+  folders = [],
   loading = false,
   onDownload,
   onDelete,
+  onFolderClick,
   getDownloadUrl,
   gridSize = 'medium'
 }: GridLayoutProps): React.ReactElement {
@@ -46,11 +52,11 @@ export function GridLayout({
     );
   }
 
-  if (files.length === 0) {
+  if (files.length === 0 && folders.length === 0) {
     return (
       <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
         <Typography variant="body1" color="text.secondary">
-          No files yet. Upload something to get started.
+          No files or folders yet. Upload something or create a folder.
         </Typography>
       </Stack>
     );
@@ -69,6 +75,59 @@ export function GridLayout({
         gap: config.gap
       }}
     >
+      {folders.map((folder) => (
+        <Card
+          key={folder.folderId}
+          variant="outlined"
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'stretch',
+            borderRadius: 2
+          }}
+        >
+          <CardActionArea
+            onClick={() => onFolderClick?.(folder)}
+            sx={{
+              flex: 1,
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'flex-start',
+              p: config.padding,
+              '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' }
+            }}
+          >
+            <Box
+              sx={{
+                width: '100%',
+                height: config.mediaHeight,
+                minHeight: config.mediaHeight,
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mb: 1
+              }}
+            >
+              <FolderIcon size={config.iconFontSize} />
+            </Box>
+            <Typography
+              variant="body2"
+              fontWeight={600}
+              noWrap
+              title={folder.name}
+              sx={{
+                width: '100%',
+                textAlign: 'center',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis'
+              }}
+            >
+              {folder.name}
+            </Typography>
+          </CardActionArea>
+        </Card>
+      ))}
       {files.map((file) => (
         <Card
           key={file.fileId}

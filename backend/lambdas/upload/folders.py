@@ -1,8 +1,21 @@
+import json
 import time
 import random
 import string
 from datetime import datetime, timezone
+from botocore.exceptions import ClientError
 from common import table, response
+
+def _debug_log(message, data, hypothesis_id):
+    """Log to stdout for CloudWatch (backend runs in AWS Lambda)."""
+    payload = {
+        'timestamp': int(time.time() * 1000),
+        'location': 'folders.py:create_folder',
+        'message': message,
+        'data': data,
+        'hypothesisId': hypothesis_id
+    }
+    print(json.dumps(payload))
 
 # Path validation limits
 MAX_PATH_LENGTH = 2048
@@ -83,11 +96,23 @@ def create_folder(user_id, folder_name, parent_path=None):
     if err is not None:
         return err
 
-    full_path = parent if parent == '/' else f'{parent}/{name}'
+    full_path = f'/{name}' if parent == '/' else f'{parent}/{name}'
     if len(full_path) > MAX_PATH_LENGTH:
         return response(400, {'error': f'path too long (max {MAX_PATH_LENGTH})'})
 
     sk_folder = f'FOLDER#{full_path}'
+
+    # #region agent log
+    _debug_log('create_folder computed path', {
+        'folder_name_raw': folder_name,
+        'parent_path_raw': parent_path,
+        'parent_normalized': parent,
+        'name': name,
+        'full_path': full_path,
+        'sk_folder': sk_folder
+    }, 'A')
+    _debug_log('before get_item existing check', {'sk_folder': sk_folder}, 'D')
+    # #endregion
 
     # For nested folders, ensure parent folder exists
     if parent != '/':
@@ -101,17 +126,6 @@ def create_folder(user_id, folder_name, parent_path=None):
         except Exception as e:
             print(f'get_item parent failed: {e}')
             return response(500, {'error': 'Internal server error'})
-
-    # Check if folder already exists at this path
-    try:
-        existing = table.get_item(
-            Key={'pk': f'USER#{user_id}', 'sk': sk_folder}
-        )
-        if existing.get('Item'):
-            return response(409, {'error': 'Folder already exists', 'path': full_path})
-    except Exception as e:
-        print(f'get_item failed: {e}')
-        return response(500, {'error': 'Internal server error'})
 
     folder_id = f'{int(time.time() * 1000)}-{"".join(random.choices(string.ascii_lowercase + string.digits, k=8))}'
     now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
@@ -129,7 +143,25 @@ def create_folder(user_id, folder_name, parent_path=None):
         'updatedAt': now,
         'itemType': 'FOLDER'
     }
-    table.put_item(Item=folder_item)
+
+    # Conditional put: only create if key does not exist (idempotent, avoids race with duplicate requests)
+    try:
+        table.put_item(
+            Item=folder_item,
+            ConditionExpression='attribute_not_exists(#sk)',
+            ExpressionAttributeNames={'#sk': 'sk'}
+        )
+    except ClientError as e:
+        if e.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
+            # #region agent log
+            _debug_log('put_item conditional check failed (folder already exists)', {
+                'sk_folder': sk_folder,
+                'full_path': full_path,
+                'runId': 'post-fix'
+            }, 'B')
+            # #endregion
+            return response(409, {'error': 'Folder already exists', 'path': full_path})
+        raise
 
     return response(200, {
         'message': 'Folder created',
