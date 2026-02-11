@@ -21,7 +21,8 @@ function parseFolder(item: unknown): DriveFolder | null {
     typeof o.path !== 'string'
   )
     return null;
-  return { folderId: o.folderId, name: o.name, path: o.path };
+  const createdAt = typeof o.createdAt === 'string' ? o.createdAt : undefined;
+  return { folderId: o.folderId, name: o.name, path: o.path, createdAt };
 }
 
 export interface DeleteFileResult {

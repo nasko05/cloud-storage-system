@@ -1,5 +1,15 @@
 import React from 'react';
-import { Box, Card, CardActionArea, CircularProgress, Stack, Typography } from '@mui/material';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import {
+  Box,
+  Card,
+  CardActionArea,
+  CircularProgress,
+  IconButton,
+  Stack,
+  Tooltip,
+  Typography
+} from '@mui/material';
 import { FileActions } from './File';
 import type { DriveFile } from './File';
 import { FolderIcon } from './Folder';
@@ -26,6 +36,7 @@ export interface GridLayoutProps {
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
   onFolderClick?: (folder: DriveFolder) => void;
+  onDeleteFolder?: (folder: DriveFolder) => void;
   /** Required for image thumbnails; if provided, image files will show a preview. */
   getDownloadUrl?: (fileId: string) => Promise<string | undefined | null>;
   /** Card size in the grid. */
@@ -39,6 +50,7 @@ export function GridLayout({
   onDownload,
   onDelete,
   onFolderClick,
+  onDeleteFolder,
   getDownloadUrl,
   gridSize = 'medium'
 }: GridLayoutProps): React.ReactElement {
@@ -125,7 +137,33 @@ export function GridLayout({
             >
               {folder.name}
             </Typography>
+            {folder.createdAt && (
+              <Typography
+                variant="caption"
+                color="text.secondary"
+                sx={{ mt: 0.25 }}
+              >
+                {new Date(folder.createdAt).toLocaleDateString()}
+              </Typography>
+            )}
           </CardActionArea>
+          <Stack
+            direction="row"
+            justifyContent="center"
+            spacing={0.5}
+            sx={{ py: 1, px: 1, borderTop: 1, borderColor: 'divider' }}
+          >
+            <Tooltip title="Delete folder">
+              <IconButton
+                size="small"
+                aria-label="Delete folder"
+                onClick={() => onDeleteFolder?.(folder)}
+                color="error"
+              >
+                <DeleteOutlineRoundedIcon fontSize="small" />
+              </IconButton>
+            </Tooltip>
+          </Stack>
         </Card>
       ))}
       {files.map((file) => (

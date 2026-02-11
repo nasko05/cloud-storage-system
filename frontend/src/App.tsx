@@ -26,7 +26,7 @@ import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
-import { createFolder, uploadFile } from './api';
+import { createFolder, deleteFolder, uploadFile } from './api';
 import { fetchFiles, getFileDownloadUrl, deleteFileResult } from './service/driveService';
 import type { DriveFolder } from './components/Folder';
 import {
@@ -205,7 +205,7 @@ function App(): JSX.Element {
       const current = selectedFiles[index];
       setUploadProgress(`Uploading ${index + 1}/${selectedFiles.length}: ${current.name}`);
       try {
-        await uploadFile(current);
+        await uploadFile(current, currentPath || undefined);
         successCount += 1;
       } catch (caughtError: unknown) {
         failureCount += 1;
@@ -247,6 +247,25 @@ function App(): JSX.Element {
     setLoading(false);
   }
 
+  async function handleDeleteFolder(folder: DriveFolder): Promise<void> {
+    if (!window.confirm(`Delete folder "${folder.name}"? This cannot be undone.`)) {
+      return;
+    }
+    setLoading(true);
+    setError('');
+    try {
+      const result = await deleteFolder(folder.path);
+      if (!result.error) {
+        setFolders((current) => current.filter((f) => f.folderId !== folder.folderId));
+      } else {
+        setError(result.error);
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to delete folder');
+    }
+    setLoading(false);
+  }
+
   const rows: FileGridRow[] = files.map((file) => file.toGridRow());
   const columns = FileColumnsFactory.create({
     onDownload: handleDownload,
@@ -278,7 +297,8 @@ function App(): JSX.Element {
       ListColumnsFactory.create({
         onDownload: handleDownload,
         onDelete: handleDelete,
-        onFolderClick: (folder) => setCurrentPath(folder.path)
+        onFolderClick: (folder) => setCurrentPath(folder.path),
+        onDeleteFolder: handleDeleteFolder
       }),
     []
   );
@@ -495,11 +515,17 @@ function App(): JSX.Element {
             onDownload={handleDownload}
             onDelete={handleDelete}
             onFolderClick={(folder) => setCurrentPath(folder.path)}
+            onDeleteFolder={handleDeleteFolder}
             getDownloadUrl={getFileDownloadUrl}
             gridSize={gridSize}
           />
         ) : (
-          <ListLayout rows={listRows} columns={listColumns} loading={loading} />
+          <ListLayout
+            rows={listRows}
+            columns={listColumns}
+            loading={loading}
+            onFolderClick={(folder) => setCurrentPath(folder.path)}
+          />
         )}
       </Paper>
     </Stack>

@@ -2,7 +2,6 @@ import React from 'react';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import {
-  Button,
   Chip,
   IconButton,
   Stack,
@@ -104,6 +103,7 @@ interface ListColumnFactoryInput {
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
   onFolderClick: (folder: DriveFolder) => void;
+  onDeleteFolder: (folder: DriveFolder) => void;
 }
 
 /** Put folders after files when sorting by size/date/extension. */
@@ -301,22 +301,35 @@ export class ListColumnsFactory {
         headerName: 'Date',
         width: 140,
         type: 'dateTime',
-        valueGetter: (params) =>
-          params.row.type === 'file' ? new Date(params.row.file.createdAt) : null,
+        valueGetter: (params) => {
+          if (params.row.type === 'file') return new Date(params.row.file.createdAt);
+          if (params.row.type === 'folder' && params.row.folder.createdAt)
+            return new Date(params.row.folder.createdAt);
+          return null;
+        },
         sortComparator: listRowSortFoldersLast,
-        renderCell: (params: GridRenderCellParams<DriveListRow>) =>
-          params.row.type === 'file'
-            ? React.createElement(Chip, {
-                label: new Date(params.row.file.createdAt).toLocaleString(),
-                size: 'small',
-                variant: 'outlined'
-              })
-            : '—'
+        renderCell: (params: GridRenderCellParams<DriveListRow>) => {
+          if (params.row.type === 'file') {
+            return React.createElement(Chip, {
+              label: new Date(params.row.file.createdAt).toLocaleString(),
+              size: 'small',
+              variant: 'outlined'
+            });
+          }
+          if (params.row.type === 'folder' && params.row.folder.createdAt) {
+            return React.createElement(Chip, {
+              label: new Date(params.row.folder.createdAt).toLocaleString(),
+              size: 'small',
+              variant: 'outlined'
+            });
+          }
+          return '—';
+        }
       },
       {
         field: 'actions',
         headerName: 'Actions',
-        width: 130,
+        width: 160,
         sortable: false,
         filterable: false,
         disableColumnMenu: true,
@@ -326,13 +339,23 @@ export class ListColumnsFactory {
           if (params.row.type === 'folder') {
             const folder = params.row.folder;
             return React.createElement(
-              Button,
-              {
-                size: 'small',
-                variant: 'text',
-                onClick: () => input.onFolderClick(folder)
-              },
-              'Open'
+              Stack,
+              { direction: 'row', spacing: 0.5, alignItems: 'center', justifyContent: 'flex-end' },
+              React.createElement(
+                Tooltip,
+                {
+                  title: 'Delete folder',
+                  children: React.createElement(IconButton, {
+                    size: 'small',
+                    'aria-label': 'Delete folder',
+                    onClick: (e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      input.onDeleteFolder(folder);
+                    },
+                    color: 'error'
+                  }, React.createElement(DeleteOutlineRoundedIcon, { fontSize: 'small' }))
+                }
+              )
             );
           }
           return React.createElement(FileActions, {

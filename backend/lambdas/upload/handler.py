@@ -1,7 +1,7 @@
 import json
 from common import response
 from files import list_files, upload_file, delete_file
-from folders import create_folder
+from folders import create_folder, delete_folder
 from sharing import list_shared_with_me, share_file, unshare_file
 
 # Action handlers registry
@@ -13,6 +13,7 @@ ACTIONS = {
         ctx['body'].get('folderName'),
         ctx['body'].get('path')
     ),
+    'delete-folder': lambda ctx: delete_folder(ctx['user_id'], ctx['body'].get('path')),
     'shared-with-me': lambda ctx: list_shared_with_me(ctx['user_id']),
     'share': lambda ctx: share_file(ctx['user_id'], ctx['user_email'], ctx['body']),
     'unshare': lambda ctx: unshare_file(ctx['user_id'], ctx['body']),

@@ -6,6 +6,8 @@ export interface DriveFolder {
   folderId: string;
   name: string;
   path: string;
+  /** ISO date string when the folder was created. */
+  createdAt?: string;
 }
 
 export const FOLDER_ICON_DEFAULT_PROPS = {
@@ -17,7 +19,7 @@ export interface FolderItemProps {
   folder: DriveFolder;
 }
 
-/** List-style row: folder icon + name (and optional path). */
+/** List-style row: folder icon + name. */
 export function FolderItem({ folder }: FolderItemProps): React.ReactElement {
   return React.createElement(
     Stack,
@@ -27,19 +29,9 @@ export function FolderItem({ folder }: FolderItemProps): React.ReactElement {
       { sx: { fontSize: 28, color: 'warning.main', flexShrink: 0 } }
     ),
     React.createElement(
-      Stack,
-      { spacing: 0.25, minWidth: 0 },
-      React.createElement(
-        Typography,
-        { fontWeight: 600, noWrap: true, title: folder.name },
-        folder.name
-      ),
-      folder.path !== '/' &&
-        React.createElement(
-          Typography,
-          { variant: 'caption', color: 'text.secondary', noWrap: true },
-          folder.path
-        )
+      Typography,
+      { fontWeight: 600, noWrap: true, title: folder.name },
+      folder.name
     )
   );
 }

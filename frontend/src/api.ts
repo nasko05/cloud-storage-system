@@ -58,21 +58,38 @@ export const createFolder = async (
     path
   });
 
+export const deleteFolder = async (path: string): Promise<ApiResult> =>
+  DriveApiClient.call<ApiResult>('/upload', { action: 'delete-folder', path });
+
 const getUploadUrl = async (
   filename: string,
   contentType: string,
-  size: number
+  size: number,
+  path?: string
 ): Promise<UploadUrlResult> =>
-  DriveApiClient.call<UploadUrlResult>('/upload', { filename, contentType, size });
+  DriveApiClient.call<UploadUrlResult>('/upload', {
+    filename,
+    contentType,
+    size,
+    ...(path !== undefined && path !== '' ? { path } : {})
+  });
 
-export const uploadFile = async (file: File): Promise<string> => {
+export const uploadFile = async (
+  file: File,
+  folderPath?: string
+): Promise<string> => {
   let contentType = file.type || 'application/octet-stream';
 
   if (file.name.toLowerCase().endsWith('.pdf')) {
     contentType = 'application/pdf';
   }
 
-  const { uploadUrl, fileId, error } = await getUploadUrl(file.name, contentType, file.size);
+  const { uploadUrl, fileId, error } = await getUploadUrl(
+    file.name,
+    contentType,
+    file.size,
+    folderPath
+  );
   if (error || !uploadUrl || !fileId) {
     throw new Error(error || 'Upload URL not available');
   }

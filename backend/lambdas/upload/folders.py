@@ -4,6 +4,7 @@ import random
 import string
 from datetime import datetime, timezone
 from botocore.exceptions import ClientError
+from boto3.dynamodb.conditions import Key
 from common import table, response
 
 def _debug_log(message, data, hypothesis_id):
@@ -169,3 +170,48 @@ def create_folder(user_id, folder_name, parent_path=None):
         'folderName': name,
         'path': full_path
     })
+
+
+def delete_folder(user_id, path):
+    """Delete a folder. Fails if path is root or folder is not empty (has files or subfolders)."""
+    normalized, err = _validate_path(path, allow_root=False)
+    if err is not None:
+        return err
+
+    sk_folder = f'FOLDER#{normalized}'
+    pk = f'USER#{user_id}'
+
+    try:
+        folder_item = table.get_item(Key={'pk': pk, 'sk': sk_folder}).get('Item')
+    except Exception as e:
+        print(f'get_item folder failed: {e}')
+        return response(500, {'error': 'Internal server error'})
+
+    if not folder_item or folder_item.get('itemType') != 'FOLDER':
+        return response(404, {'error': 'Folder not found', 'path': normalized})
+
+    # Reject if folder contains files
+    file_prefix = f'FILE#{normalized}/'
+    file_result = table.query(
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(file_prefix),
+        Limit=1
+    )
+    if file_result.get('Items'):
+        return response(400, {'error': 'Folder is not empty (contains files)', 'path': normalized})
+
+    # Reject if folder contains subfolders
+    folder_prefix = f'FOLDER#{normalized}/'
+    subfolder_result = table.query(
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(folder_prefix),
+        Limit=1
+    )
+    if subfolder_result.get('Items'):
+        return response(400, {'error': 'Folder is not empty (contains subfolders)', 'path': normalized})
+
+    try:
+        table.delete_item(Key={'pk': pk, 'sk': sk_folder})
+    except Exception as e:
+        print(f'delete_item folder failed: {e}')
+        return response(500, {'error': 'Internal server error'})
+
+    return response(200, {'message': 'Folder deleted', 'path': normalized})
