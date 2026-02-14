@@ -83,10 +83,13 @@ def upload_file(user_id, user_email, body):
 
     random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     file_id = f'{int(time.time() * 1000)}-{random_suffix}'
-    s3_key = f'files/{user_id}/{file_id}/{filename}'
 
     normalized_path = '/'.join(filter(None, file_path.split('/')))
     normalized_path = f'/{normalized_path}' if normalized_path else '/'
+
+    # Auto-disambiguate: if a file with the same name already exists, append (1), (2), etc.
+    filename = _disambiguate_filename(user_id, normalized_path, filename)
+    s3_key = f'files/{user_id}/{file_id}/{filename}'
 
     upload_url = s3.generate_presigned_url(
         'put_object',
@@ -118,6 +121,7 @@ def upload_file(user_id, user_email, body):
     return response(200, {
         'uploadUrl': upload_url,
         'fileId': file_id,
+        'filename': filename,
         's3Key': s3_key,
         'expiresIn': EXPIRY
     })
@@ -151,6 +155,36 @@ def _find_file_by_id(user_id, file_id):
     return file_item, items, None
 
 
+def _file_exists_in_folder(user_id, path, filename):
+    """Check if a file with this name already exists at the given path."""
+    sk = f'FILE#{path}/{filename}'
+    result = table.get_item(Key={'pk': f'USER#{user_id}', 'sk': sk})
+    return result.get('Item') is not None
+
+
+def _disambiguate_filename(user_id, path, filename):
+    """Return a unique filename in the folder by appending (N) if needed."""
+    if not _file_exists_in_folder(user_id, path, filename):
+        return filename
+
+    # Split into name and extension
+    dot_idx = filename.rfind('.')
+    if dot_idx > 0:
+        base, ext = filename[:dot_idx], filename[dot_idx:]
+    else:
+        base, ext = filename, ''
+
+    counter = 1
+    while counter < 1000:
+        candidate = f'{base} ({counter}){ext}'
+        if not _file_exists_in_folder(user_id, path, candidate):
+            return candidate
+        counter += 1
+
+    # Fallback: use timestamp suffix
+    return f'{base} ({int(time.time())}){ext}'
+
+
 def move_file(user_id, file_id, destination_path):
     """Move a file to a different folder. S3 key stays the same."""
     file_item, _items, err = _find_file_by_id(user_id, file_id)
@@ -172,6 +206,14 @@ def move_file(user_id, file_id, destination_path):
 
     if old_sk == new_sk:
         return response(200, {'message': 'File already in destination', 'fileId': file_id, 'newPath': dest})
+
+    # Check for name conflict at destination
+    if _file_exists_in_folder(user_id, dest, filename):
+        return response(409, {
+            'error': 'A file with that name already exists in the destination folder',
+            'filename': filename,
+            'path': dest
+        })
 
     now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 
@@ -213,6 +255,14 @@ def rename_file(user_id, file_id, new_name):
 
     if file_item['filename'] == name:
         return response(200, {'message': 'Name unchanged', 'fileId': file_id, 'newName': name})
+
+    # Check for name conflict
+    if _file_exists_in_folder(user_id, file_path, name):
+        return response(409, {
+            'error': 'A file with that name already exists in this folder',
+            'filename': name,
+            'path': file_path
+        })
 
     now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
 

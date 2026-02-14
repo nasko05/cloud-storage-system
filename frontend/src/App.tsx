@@ -141,9 +141,9 @@ function App(): JSX.Element {
   // Core data helpers
   // =========================================================================
 
-  const loadFiles = async (): Promise<void> => {
+  const loadFiles = async (preserveError = false): Promise<void> => {
     setLoading(true);
-    setError('');
+    if (!preserveError) setError('');
     const result = await fetchFiles(currentPath || undefined);
     setFiles(result.files);
     setFolders(result.folders);
@@ -440,11 +440,12 @@ function App(): JSX.Element {
         }
       }
     }
-    if (failCount > 0) {
+    const hasErrors = failCount > 0;
+    if (hasErrors) {
       setError(`${failCount} item(s) failed to delete`);
     }
     setSelectedItems(new Set());
-    await loadFiles();
+    await loadFiles(hasErrors);
     setLoading(false);
   }
 
@@ -464,12 +465,13 @@ function App(): JSX.Element {
       result = await renameFolderResult(renameTarget.folder.path, newName);
     }
 
-    if (!result.success) {
+    const hasError = !result.success;
+    if (hasError) {
       setError(result.error ?? 'Rename failed');
     }
 
     setRenameTarget(null);
-    await loadFiles();
+    await loadFiles(hasError);
     setLoading(false);
   };
 
@@ -482,7 +484,7 @@ function App(): JSX.Element {
     setLoading(true);
     setError('');
 
-    let failCount = 0;
+    const errors: string[] = [];
     for (const item of moveItems) {
       let result;
       if (item.type === 'file') {
@@ -490,16 +492,19 @@ function App(): JSX.Element {
       } else {
         result = await moveFolderResult(item.path ?? '', destinationPath);
       }
-      if (!result.success) failCount += 1;
+      if (!result.success) {
+        errors.push(result.error ?? `Failed to move "${item.name}"`);
+      }
     }
 
-    if (failCount > 0) {
-      setError(`${failCount} item(s) failed to move`);
+    const hasErrors = errors.length > 0;
+    if (hasErrors) {
+      setError(errors.join('; '));
     }
 
     setMoveItems([]);
     setSelectedItems(new Set());
-    await loadFiles();
+    await loadFiles(hasErrors);
     setLoading(false);
   };
 
@@ -538,7 +543,7 @@ function App(): JSX.Element {
         }
       }
 
-      let failCount = 0;
+      const errors: string[] = [];
       for (const item of idsToMove) {
         let result;
         if (item.type === 'file') {
@@ -546,15 +551,18 @@ function App(): JSX.Element {
         } else {
           result = await moveFolderResult(item.path ?? '', targetFolder.path);
         }
-        if (!result.success) failCount += 1;
+        if (!result.success) {
+          errors.push(result.error ?? 'Move failed');
+        }
       }
 
-      if (failCount > 0) {
-        setError(`${failCount} item(s) failed to move`);
+      const hasErrors = errors.length > 0;
+      if (hasErrors) {
+        setError(errors.join('; '));
       }
 
       setSelectedItems(new Set());
-      await loadFiles();
+      await loadFiles(hasErrors);
       setLoading(false);
     },
     [selectedItems, files, folders]
