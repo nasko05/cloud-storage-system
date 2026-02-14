@@ -35,7 +35,7 @@ ACTIONS = {
         ctx['body'].get('folderPath'),
         ctx['body'].get('newName')
     ),
-    'shared-with-me': lambda ctx: list_shared_with_me(ctx['user_id']),
+    'shared-with-me': lambda ctx: list_shared_with_me(ctx['user_id'], ctx['user_email']),
     'share': lambda ctx: share_file(ctx['user_id'], ctx['user_email'], ctx['body']),
     'unshare': lambda ctx: unshare_file(ctx['user_id'], ctx['body']),
 }

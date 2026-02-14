@@ -1,25 +1,63 @@
 import json
+import os
 import time
 from datetime import datetime
+import boto3
 from boto3.dynamodb.conditions import Key
 from common import table, SHARE_EXPIRY_DAYS, response, utc_now_iso
 from db_helpers import file_gsi, shared_pk, find_file_by_id
 
+_cognito = boto3.client('cognito-idp')
+_USER_POOL_ID = os.environ.get('USER_POOL_ID', '')
 
-def list_shared_with_me(user_id):
+
+def _resolve_email(user_sub):
+    """Look up a Cognito user's email by their sub (UUID). Returns the email or the sub on failure."""
+    if not _USER_POOL_ID or not user_sub:
+        return user_sub
+    try:
+        resp = _cognito.admin_get_user(UserPoolId=_USER_POOL_ID, Username=user_sub)
+        for attr in resp.get('UserAttributes', []):
+            if attr['Name'] == 'email':
+                return attr['Value']
+    except Exception:
+        pass
+    return user_sub
+
+
+def list_shared_with_me(user_id, user_email=None):
+    # Query by Cognito sub (user_id)
     result = table.query(
         KeyConditionExpression=Key('pk').eq(shared_pk(user_id)) & Key('sk').begins_with('FILE#')
     )
+    items = result.get('Items', [])
+
+    # Also query by email if it differs from user_id (shares may be keyed by email)
+    if user_email and user_email != user_id:
+        email_result = table.query(
+            KeyConditionExpression=Key('pk').eq(shared_pk(user_email)) & Key('sk').begins_with('FILE#')
+        )
+        seen = {item['sk'] for item in items}
+        for item in email_result.get('Items', []):
+            if item['sk'] not in seen:
+                items.append(item)
+
+    # Resolve sharedBy UUIDs to emails via Cognito (batch-deduplicated)
+    subs = {item['sharedBy'] for item in items}
+    resolved = {}
+    for sub in subs:
+        resolved[sub] = _resolve_email(sub)
+
     files = [
         {
             'fileId': item['fileId'],
             'sharedBy': item['sharedBy'],
-            'sharedByEmail': item['sharedByEmail'],
+            'sharedByEmail': resolved.get(item['sharedBy'], item['sharedByEmail']),
             'filename': item['filename'],
             'permission': item['permission'],
             'expiresAt': item['expiresAt']
         }
-        for item in result.get('Items', [])
+        for item in items
     ]
     return response(200, {'files': files})
 

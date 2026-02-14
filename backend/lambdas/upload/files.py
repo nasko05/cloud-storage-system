@@ -32,7 +32,9 @@ def list_files(user_id, folder=None):
     ]
 
     # Folders in current directory (direct children only)
-    fldp = folder_sk_prefix('/') if is_root else folder_sk_prefix(list_path)
+    # Root folders have sk like FOLDER#/Name, so prefix must be FOLDER#/
+    # (folder_sk_prefix('/') yields FOLDER#// which never matches)
+    fldp = 'FOLDER#/' if is_root else folder_sk_prefix(list_path)
     folder_result = table.query(
         KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(fldp)
     )

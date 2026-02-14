@@ -4,18 +4,28 @@ import {
   AppBar,
   Box,
   Button,
+  Chip,
+  CircularProgress,
   Container,
   CssBaseline,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  List,
+  ListItem,
+  ListItemIcon,
+  ListItemText,
   Paper,
+  Snackbar,
   Stack,
+  Tab,
+  Tabs,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
   Toolbar,
+  Tooltip,
   Typography
 } from '@mui/material';
 import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded';
@@ -23,18 +33,24 @@ import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
+import FolderSharedRoundedIcon from '@mui/icons-material/FolderSharedRounded';
+import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
+import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { logout, getToken } from './auth';
 import { createFolder, uploadFile } from './api';
 import {
   fetchFiles,
+  fetchSharedWithMe,
   getFileDownloadUrl,
   moveFileResult,
   moveFolderResult,
   renameFileResult,
-  renameFolderResult
+  renameFolderResult,
+  shareFileResult
 } from './service/driveService';
 import type { DriveFolder } from './components/Folder';
-import type { DriveFile, DriveListRow, FileGridRow, ContextMenuTarget, ContextMenuPosition, RenameTarget, MoveItem } from './types/drive';
+import type { DriveFile, DriveListRow, FileGridRow, ContextMenuTarget, ContextMenuPosition, RenameTarget, MoveItem, ShareTarget, SharePermission, SharedFile } from './types/drive';
 import { toFileGridRow } from './types/drive';
 import { FileColumnsFactory, ListColumnsFactory } from './components/FileColumns';
 import { GridLayout, type GridSize } from './components/GridLayout';
@@ -42,12 +58,14 @@ import { ListLayout } from './components/ListLayout';
 import { ContextMenu } from './components/ContextMenu';
 import { RenameDialog } from './components/RenameDialog';
 import { MoveDialog } from './components/MoveDialog';
+import { ShareDialog } from './components/ShareDialog';
 import { AuthForm } from './components/AuthForm';
 import { useSelection } from './hooks/useSelection';
 import { useDriveActions } from './hooks/useDriveActions';
 import './App.css';
 
 type ViewMode = 'grid' | 'list';
+type DriveTab = 'my-drive' | 'shared-with-me';
 
 const VIEW_PREFS_KEY = 'driveViewPrefs';
 
@@ -95,6 +113,15 @@ function App(): JSX.Element {
   const [moveItems, setMoveItems] = useState<MoveItem[]>([]);
   const [moveDialogOpen, setMoveDialogOpen] = useState(false);
 
+  // --- Share dialog state ---
+  const [shareTarget, setShareTarget] = useState<ShareTarget>(null);
+  const [shareSuccess, setShareSuccess] = useState('');
+
+  // --- Shared with me state ---
+  const [driveTab, setDriveTab] = useState<DriveTab>('my-drive');
+  const [sharedFiles, setSharedFiles] = useState<SharedFile[]>([]);
+  const [sharedLoading, setSharedLoading] = useState(false);
+
   // --- Selection (extracted hook) ---
   const {
     selectedItems,
@@ -115,6 +142,15 @@ function App(): JSX.Element {
     setFolders(result.folders);
     if (result.error) setError(result.error);
     setLoading(false);
+  };
+
+  const loadSharedFiles = async (): Promise<void> => {
+    setSharedLoading(true);
+    setError('');
+    const result = await fetchSharedWithMe();
+    setSharedFiles(result.files);
+    if (result.error) setError(result.error);
+    setSharedLoading(false);
   };
 
   // --- Drive actions (extracted hook) ---
@@ -151,10 +187,17 @@ function App(): JSX.Element {
     void bootstrap();
   }, []);
 
+  // Load My Drive files (unchanged from original — always stays fresh)
   useEffect(() => {
     if (!token) return;
     void loadFiles();
   }, [token, currentPath]);
+
+  // Load shared files only when that tab is active
+  useEffect(() => {
+    if (!token || driveTab !== 'shared-with-me') return;
+    void loadSharedFiles();
+  }, [token, driveTab]);
 
   useEffect(() => {
     localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify({ viewMode, gridSize }));
@@ -172,6 +215,9 @@ function App(): JSX.Element {
     logout();
     setToken(null);
     setFiles([]);
+    setFolders([]);
+    setSharedFiles([]);
+    setCurrentPath('');
   };
 
   // =========================================================================
@@ -319,6 +365,12 @@ function App(): JSX.Element {
     }
   };
 
+  const handleCtxShare = (): void => {
+    if (ctxTarget?.type === 'file') {
+      setShareTarget(ctxTarget);
+    }
+  };
+
   const handleCtxDelete = (): void => {
     if (selectedItems.size > 1) {
       // Bulk delete
@@ -387,6 +439,36 @@ function App(): JSX.Element {
     setMoveItems([]);
     setSelectedItems(new Set());
     await loadFiles(hasErrors);
+    setLoading(false);
+  };
+
+  // =========================================================================
+  // Share
+  // =========================================================================
+
+  const handleShareSubmit = async (params: {
+    fileId: string;
+    shareWithEmail: string;
+    permission: SharePermission;
+    expiryDays: number;
+  }): Promise<void> => {
+    setShareTarget(null);
+    setLoading(true);
+    setError('');
+
+    const result = await shareFileResult(
+      params.fileId,
+      params.shareWithEmail,
+      params.permission,
+      params.expiryDays
+    );
+
+    if (!result.success) {
+      setError(result.error ?? 'Share failed');
+    } else {
+      setShareSuccess(`Shared with ${params.shareWithEmail}`);
+    }
+
     setLoading(false);
   };
 
@@ -476,6 +558,30 @@ function App(): JSX.Element {
             </AppBar>
           </Paper>
 
+          <Paper elevation={1} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+            <Tabs
+              value={driveTab}
+              onChange={(_, v) => setDriveTab(v as DriveTab)}
+              sx={{ px: 2 }}
+            >
+              <Tab
+                icon={<FolderRoundedIcon />}
+                iconPosition="start"
+                label="My Drive"
+                value="my-drive"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+              <Tab
+                icon={<FolderSharedRoundedIcon />}
+                iconPosition="start"
+                label="Shared with me"
+                value="shared-with-me"
+                sx={{ textTransform: 'none', minHeight: 48 }}
+              />
+            </Tabs>
+          </Paper>
+
+          {driveTab === 'my-drive' && (
           <Paper elevation={1} sx={{ borderRadius: 3, p: 2.5 }}>
             <Stack direction={{ xs: 'column', sm: 'row' }} spacing={1.5} alignItems="center" flexWrap="wrap">
               <Button
@@ -500,6 +606,7 @@ function App(): JSX.Element {
               </Typography>
             </Stack>
           </Paper>
+          )}
 
           <Dialog open={createFolderOpen} onClose={handleCreateFolderClose} maxWidth="xs" fullWidth>
             <DialogTitle>New folder</DialogTitle>
@@ -530,7 +637,8 @@ function App(): JSX.Element {
           {error && <Alert severity="error">{error}</Alert>}
           {uploadProgress && <Alert severity="info">{uploadProgress}</Alert>}
 
-          <Paper elevation={1} sx={{ borderRadius: 3, p: 1.5 }}>
+          {driveTab === 'my-drive' ? (
+          <Paper key="my-drive" elevation={1} sx={{ borderRadius: 3, p: 1.5 }}>
             {currentPath ? (
               <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
                 <Button
@@ -607,6 +715,66 @@ function App(): JSX.Element {
               />
             )}
           </Paper>
+          ) : (
+          <Paper key="shared-with-me" elevation={1} sx={{ borderRadius: 3, p: 2 }}>
+            {sharedLoading ? (
+              <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                <CircularProgress />
+              </Box>
+            ) : sharedFiles.length === 0 ? (
+              <Box sx={{ textAlign: 'center', py: 4 }}>
+                <FolderSharedRoundedIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                <Typography color="text.secondary">
+                  No files have been shared with you yet.
+                </Typography>
+              </Box>
+            ) : (
+              <List disablePadding>
+                {sharedFiles.map((sf) => (
+                  <ListItem
+                    key={sf.fileId}
+                    secondaryAction={
+                      (sf.permission === 'download' || sf.permission === 'edit') ? (
+                        <Tooltip title="Download">
+                          <Button
+                            size="small"
+                            onClick={() => void handleDownload({ fileId: sf.fileId, filename: sf.filename, size: 0, createdAt: '' } as DriveFile)}
+                          >
+                            <DownloadRoundedIcon fontSize="small" />
+                          </Button>
+                        </Tooltip>
+                      ) : null
+                    }
+                    sx={{ borderBottom: '1px solid', borderColor: 'divider', '&:last-child': { borderBottom: 'none' } }}
+                  >
+                    <ListItemIcon>
+                      <InsertDriveFileRoundedIcon color="action" />
+                    </ListItemIcon>
+                    <ListItemText
+                      primary={sf.filename}
+                      secondary={
+                        <Stack component="span" direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                          <Typography component="span" variant="caption" color="text.secondary">
+                            From: {sf.sharedByEmail}
+                          </Typography>
+                          <Chip
+                            label={sf.permission === 'read' ? 'View' : sf.permission === 'download' ? 'Download' : 'Edit'}
+                            size="small"
+                            variant="outlined"
+                            sx={{ height: 20, fontSize: '0.7rem' }}
+                          />
+                          <Typography component="span" variant="caption" color="text.secondary">
+                            Expires: {new Date(sf.expiresAt).toLocaleDateString()}
+                          </Typography>
+                        </Stack>
+                      }
+                    />
+                  </ListItem>
+                ))}
+              </List>
+            )}
+          </Paper>
+          )}
 
           {/* Context menu */}
           <ContextMenu
@@ -617,6 +785,7 @@ function App(): JSX.Element {
             onRename={handleCtxRename}
             onMoveTo={handleCtxMoveTo}
             onDownload={handleCtxDownload}
+            onShare={handleCtxShare}
             onDelete={handleCtxDelete}
           />
 
@@ -637,6 +806,30 @@ function App(): JSX.Element {
             }}
             onConfirm={handleMoveConfirm}
           />
+
+          {/* Share dialog */}
+          <ShareDialog
+            target={shareTarget}
+            onClose={() => setShareTarget(null)}
+            onSubmit={handleShareSubmit}
+          />
+
+          {/* Share success notification */}
+          <Snackbar
+            open={!!shareSuccess}
+            autoHideDuration={3000}
+            onClose={() => setShareSuccess('')}
+            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+          >
+            <Alert
+              onClose={() => setShareSuccess('')}
+              severity="success"
+              variant="filled"
+              sx={{ width: '100%' }}
+            >
+              {shareSuccess}
+            </Alert>
+          </Snackbar>
         </Stack>
       </Container>
     </>

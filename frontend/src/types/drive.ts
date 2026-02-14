@@ -101,3 +101,23 @@ export interface MoveItem {
   path?: string;
   name: string;
 }
+
+// ---------------------------------------------------------------------------
+// Sharing
+// ---------------------------------------------------------------------------
+
+export type SharePermission = 'read' | 'download' | 'edit';
+
+export type ShareTarget =
+  | { type: 'file'; file: DriveFile }
+  | null;
+
+/** A file that has been shared with the current user. */
+export interface SharedFile {
+  fileId: string;
+  filename: string;
+  sharedBy: string;
+  sharedByEmail: string;
+  permission: SharePermission;
+  expiresAt: string;
+}

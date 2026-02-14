@@ -6,13 +6,15 @@ import {
   deleteFile,
   getDownloadUrl,
   listFiles,
+  listSharedWithMe,
   moveFile as apiMoveFile,
   moveFolder as apiMoveFolder,
   renameFile as apiRenameFile,
   renameFolder as apiRenameFolder,
+  shareFile as apiShareFile,
   uploadFile
 } from '../api';
-import type { DriveFile, DriveFolder } from '../types/drive';
+import type { DriveFile, DriveFolder, SharedFile, SharePermission } from '../types/drive';
 import { driveFileFromUnknown } from '../types/drive';
 
 // ---------------------------------------------------------------------------
@@ -128,6 +130,51 @@ export async function renameFileResult(fileId: string, newName: string): Promise
 
 export async function renameFolderResult(folderPath: string, newName: string): Promise<MoveResult> {
   return wrapApiCall(() => apiRenameFolder(folderPath, newName), 'Rename failed');
+}
+
+export interface FetchSharedFilesResult {
+  files: SharedFile[];
+  error?: string;
+}
+
+export async function fetchSharedWithMe(): Promise<FetchSharedFilesResult> {
+  try {
+    const data = await listSharedWithMe();
+    const files: SharedFile[] = (data.files ?? []).map((f) => ({
+      fileId: f.fileId,
+      filename: f.filename,
+      sharedBy: f.sharedBy,
+      sharedByEmail: f.sharedByEmail,
+      permission: f.permission as SharePermission,
+      expiresAt: f.expiresAt
+    }));
+    return { files };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load shared files';
+    return { files: [], error: message };
+  }
+}
+
+export interface ShareResult {
+  success: boolean;
+  expiresAt?: string;
+  error?: string;
+}
+
+export async function shareFileResult(
+  fileId: string,
+  shareWithEmail: string,
+  permission: string,
+  expiryDays?: number
+): Promise<ShareResult> {
+  try {
+    const result = await apiShareFile(fileId, shareWithEmail, permission, expiryDays);
+    if (result.error) return { success: false, error: result.error };
+    return { success: true, expiresAt: result.expiresAt };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Share failed';
+    return { success: false, error: message };
+  }
 }
 
 export interface UploadBatchResult {

@@ -277,6 +277,12 @@ Resources:
                 Resource:
                   - !GetAtt MetadataTable.Arn
                   - !Sub "${MetadataTable.Arn}/index/*"
+              - Sid: CognitoLookup
+                Effect: Allow
+                Action:
+                  - cognito-idp:AdminGetUser
+                Resource:
+                  - !GetAtt UserPool.Arn
 
   DownloadLambdaRole:
     Type: AWS::IAM::Role
@@ -336,6 +342,7 @@ Resources:
           METADATA_TABLE_NAME: !Ref MetadataTable
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
           SHARE_EXPIRY_DAYS: !Ref ShareExpiryDays
+          USER_POOL_ID: !Ref UserPool
       Code:
         ZipFile: |
           def handler(event, context):

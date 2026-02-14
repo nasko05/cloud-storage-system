@@ -29,6 +29,24 @@ interface CreateFolderResult extends ApiResult {
   path?: string;
 }
 
+interface ShareFileResult extends ApiResult {
+  message?: string;
+  fileId?: string;
+  sharedWith?: string;
+  expiresAt?: string;
+}
+
+interface SharedWithMeResult extends ApiResult {
+  files?: Array<{
+    fileId: string;
+    sharedBy: string;
+    sharedByEmail: string;
+    filename: string;
+    permission: string;
+    expiresAt: string;
+  }>;
+}
+
 class DriveApiClient {
   public static async call<T extends ApiResult>(endpoint: string, body: ApiBody): Promise<T> {
     const token = await getToken();
@@ -139,3 +157,20 @@ export const moveFolder = async (folderPath: string, destinationPath: string): P
 
 export const renameFolder = async (folderPath: string, newName: string): Promise<ApiResult> =>
   DriveApiClient.call<ApiResult>('/upload', { action: 'rename-folder', folderPath, newName });
+
+export const listSharedWithMe = async (): Promise<SharedWithMeResult> =>
+  DriveApiClient.call<SharedWithMeResult>('/upload', { action: 'shared-with-me' });
+
+export const shareFile = async (
+  fileId: string,
+  shareWithEmail: string,
+  permission: string,
+  expiryDays?: number
+): Promise<ShareFileResult> =>
+  DriveApiClient.call<ShareFileResult>('/upload', {
+    action: 'share',
+    fileId,
+    shareWithEmail,
+    permission,
+    ...(expiryDays !== undefined ? { expiryDays } : {})
+  });
