@@ -163,6 +163,7 @@ function App(): JSX.Element {
   // --- Drive actions (extracted hook) ---
   const {
     handleDownload,
+    handleDownloadFolder,
     handleBulkDownloadAsZip,
     handleDelete,
     handleDeleteFolder,
@@ -532,9 +533,10 @@ function App(): JSX.Element {
         onDownload: handleDownload,
         onDelete: handleDelete,
         onFolderClick: (folder) => setCurrentPath(folder.path),
+        onDownloadFolder: handleDownloadFolder,
         onDeleteFolder: handleDeleteFolder
       }),
-    [handleDownload, handleDelete, handleDeleteFolder]
+    [handleDownload, handleDelete, handleDownloadFolder, handleDeleteFolder]
   );
 
   // =========================================================================
@@ -713,6 +715,7 @@ function App(): JSX.Element {
                 onDownload={handleDownload}
                 onDelete={handleDelete}
                 onFolderClick={(folder) => setCurrentPath(folder.path)}
+                onDownloadFolder={handleDownloadFolder}
                 onDeleteFolder={handleDeleteFolder}
                 onContextMenu={handleContextMenu}
                 onSelectionChange={handleGridSelectionChange}

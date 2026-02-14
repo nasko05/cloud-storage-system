@@ -23,6 +23,7 @@ export interface UseDriveActionsInput {
 
 export interface UseDriveActionsReturn {
   handleDownload: (file: DriveFile) => Promise<void>;
+  handleDownloadFolder: (folder: DriveFolder) => Promise<void>;
   handleBulkDownloadAsZip: () => Promise<void>;
   handleDelete: (file: DriveFile) => Promise<void>;
   handleDeleteFolder: (folder: DriveFolder) => Promise<void>;
@@ -51,6 +52,18 @@ export function useDriveActions({
       window.open(url, '_blank', 'noopener,noreferrer');
     } else {
       setError('Download failed');
+    }
+  }
+
+  async function handleDownloadFolder(folder: DriveFolder): Promise<void> {
+    setLoading(true);
+    setError('');
+    const result = await getBulkDownloadZipUrl([], [folder.path]);
+    setLoading(false);
+    if (result.downloadUrl) {
+      window.open(result.downloadUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      setError(result.error ?? 'Failed to create ZIP');
     }
   }
 
@@ -215,5 +228,5 @@ export function useDriveActions({
     [selectedItems, files, folders, setLoading, setError, setSelectedItems, loadFiles]
   );
 
-  return { handleDownload, handleBulkDownloadAsZip, handleDelete, handleDeleteFolder, handleBulkDelete, handleDrop };
+  return { handleDownload, handleDownloadFolder, handleBulkDownloadAsZip, handleDelete, handleDeleteFolder, handleBulkDelete, handleDrop };
 }

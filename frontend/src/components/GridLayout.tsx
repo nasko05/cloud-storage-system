@@ -15,7 +15,7 @@ import {
 import { FileActions } from './File';
 import type { DriveFile, DriveFolder } from '../types/drive';
 import { formatFileSize } from '../types/drive';
-import { FolderIcon } from './Folder';
+import { FolderIcon, FolderActions } from './Folder';
 import { DynamicRenderedIcon } from './DynamicRenderedIcon';
 import { ImageThumbnail } from './ImageThumbnail';
 import { isImageFilename } from '../service/fileUtils';
@@ -39,6 +39,7 @@ export interface GridLayoutProps {
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
   onFolderClick?: (folder: DriveFolder) => void;
+  onDownloadFolder?: (folder: DriveFolder) => void;
   onDeleteFolder?: (folder: DriveFolder) => void;
   onContextMenu?: (
     e: React.MouseEvent,
@@ -63,6 +64,7 @@ export function GridLayout({
   onDownload,
   onDelete,
   onFolderClick,
+  onDownloadFolder,
   onDeleteFolder,
   onContextMenu,
   onSelectionChange,
@@ -197,7 +199,6 @@ export function GridLayout({
             />
           )}
           <CardActionArea
-            onClick={() => onFolderClick?.(folder)}
             sx={{
               flex: 1,
               display: 'flex',
@@ -208,6 +209,7 @@ export function GridLayout({
               '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' },
               '&:hover': { backgroundColor: 'transparent' }
             }}
+            onClick={() => onFolderClick?.(folder)}
           >
             <Box
               sx={{
@@ -246,6 +248,20 @@ export function GridLayout({
               </Typography>
             )}
           </CardActionArea>
+          {onDownloadFolder && (
+            <Stack
+              direction="row"
+              justifyContent="center"
+              spacing={0.5}
+              sx={{ py: 1, px: 1, borderTop: 1, borderColor: 'divider' }}
+            >
+              <FolderActions
+                folder={folder}
+                onDownload={onDownloadFolder}
+                onDelete={onDeleteFolder}
+              />
+            </Stack>
+          )}
         </Card>
       ))}
       {files.map((file) => (

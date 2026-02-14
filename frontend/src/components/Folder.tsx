@@ -1,6 +1,8 @@
 import React from 'react';
-import { Stack, Typography } from '@mui/material';
+import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
+import { IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import type { DriveFolder } from '../types/drive';
 
 // Re-export so existing `import from './Folder'` still resolves
@@ -32,4 +34,30 @@ export interface FolderIconProps {
 /** Standalone folder icon for grid cards or toolbars. */
 export function FolderIcon({ size = 48, color = 'warning.main' }: FolderIconProps): React.ReactElement {
   return <FolderRoundedIcon sx={{ fontSize: size, color }} aria-hidden />;
+}
+
+export interface FolderActionsProps {
+  folder: DriveFolder;
+  onDownload: (folder: DriveFolder) => void;
+  onDelete?: (folder: DriveFolder) => void;
+}
+
+/** Action buttons for a folder (download as ZIP, optional delete). */
+export function FolderActions({ folder, onDownload, onDelete }: FolderActionsProps): React.ReactElement {
+  return (
+    <Stack direction="row" spacing={0.5}>
+      <Tooltip title="Download as ZIP">
+        <IconButton size="small" color="primary" onClick={() => onDownload(folder)}>
+          <DownloadRoundedIcon fontSize="small" />
+        </IconButton>
+      </Tooltip>
+      {onDelete && (
+        <Tooltip title="Delete folder">
+          <IconButton size="small" color="error" onClick={() => onDelete(folder)}>
+            <DeleteOutlineRoundedIcon fontSize="small" />
+          </IconButton>
+        </Tooltip>
+      )}
+    </Stack>
+  );
 }
