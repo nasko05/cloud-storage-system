@@ -205,7 +205,8 @@ export function GridLayout({
               alignItems: 'center',
               justifyContent: 'flex-start',
               p: config.padding,
-              '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' }
+              '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' },
+              '&:hover': { backgroundColor: 'transparent' }
             }}
           >
             <Box
@@ -299,7 +300,8 @@ export function GridLayout({
               alignItems: 'center',
               justifyContent: 'flex-start',
               p: config.padding,
-              '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' }
+              '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' },
+              '&:hover': { backgroundColor: 'transparent' }
             }}
           >
             <Box
