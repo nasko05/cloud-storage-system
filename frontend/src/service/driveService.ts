@@ -15,13 +15,11 @@ import {
 import { DriveFile } from '../components/File';
 import type { DriveFolder } from '../components/Folder';
 
-export interface FetchFilesResult {
-  files: InstanceType<typeof DriveFile>[];
-  folders: DriveFolder[];
-  error?: string;
-}
+// ---------------------------------------------------------------------------
+// Shared folder parser (used by MoveDialog as well)
+// ---------------------------------------------------------------------------
 
-function parseFolder(item: unknown): DriveFolder | null {
+export function parseFolder(item: unknown): DriveFolder | null {
   if (!item || typeof item !== 'object') return null;
   const o = item as Record<string, unknown>;
   if (
@@ -34,14 +32,37 @@ function parseFolder(item: unknown): DriveFolder | null {
   return { folderId: o.folderId, name: o.name, path: o.path, createdAt };
 }
 
-export interface DeleteFileResult {
+// ---------------------------------------------------------------------------
+// Generic API-call wrapper (error extraction + try/catch)
+// ---------------------------------------------------------------------------
+
+interface ApiCallResult {
   success: boolean;
   error?: string;
 }
 
-export interface UploadBatchResult {
-  successCount: number;
-  failureCount: number;
+async function wrapApiCall<T extends { error?: string }>(
+  fn: () => Promise<T>,
+  fallbackMsg: string
+): Promise<ApiCallResult> {
+  try {
+    const result = await fn();
+    if (result.error) return { success: false, error: result.error };
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : fallbackMsg;
+    return { success: false, error: message };
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Public API
+// ---------------------------------------------------------------------------
+
+export interface FetchFilesResult {
+  files: InstanceType<typeof DriveFile>[];
+  folders: DriveFolder[];
+  error?: string;
 }
 
 export class FileCollection {
@@ -79,17 +100,13 @@ export async function getFileDownloadUrl(fileId: string): Promise<string | null>
   }
 }
 
+export interface DeleteFileResult {
+  success: boolean;
+  error?: string;
+}
+
 export async function deleteFileResult(fileId: string): Promise<DeleteFileResult> {
-  try {
-    const result = await deleteFile(fileId);
-    if (result.error) {
-      return { success: false, error: result.error };
-    }
-    return { success: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Delete failed';
-    return { success: false, error: message };
-  }
+  return wrapApiCall(() => deleteFile(fileId), 'Delete failed');
 }
 
 export interface MoveResult {
@@ -98,47 +115,24 @@ export interface MoveResult {
 }
 
 export async function moveFileResult(fileId: string, destinationPath: string): Promise<MoveResult> {
-  try {
-    const result = await apiMoveFile(fileId, destinationPath);
-    if (result.error) return { success: false, error: result.error };
-    return { success: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Move failed';
-    return { success: false, error: message };
-  }
+  return wrapApiCall(() => apiMoveFile(fileId, destinationPath), 'Move failed');
 }
 
 export async function moveFolderResult(folderPath: string, destinationPath: string): Promise<MoveResult> {
-  try {
-    const result = await apiMoveFolder(folderPath, destinationPath);
-    if (result.error) return { success: false, error: result.error };
-    return { success: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Move failed';
-    return { success: false, error: message };
-  }
+  return wrapApiCall(() => apiMoveFolder(folderPath, destinationPath), 'Move failed');
 }
 
 export async function renameFileResult(fileId: string, newName: string): Promise<MoveResult> {
-  try {
-    const result = await apiRenameFile(fileId, newName);
-    if (result.error) return { success: false, error: result.error };
-    return { success: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Rename failed';
-    return { success: false, error: message };
-  }
+  return wrapApiCall(() => apiRenameFile(fileId, newName), 'Rename failed');
 }
 
 export async function renameFolderResult(folderPath: string, newName: string): Promise<MoveResult> {
-  try {
-    const result = await apiRenameFolder(folderPath, newName);
-    if (result.error) return { success: false, error: result.error };
-    return { success: true };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Rename failed';
-    return { success: false, error: message };
-  }
+  return wrapApiCall(() => apiRenameFolder(folderPath, newName), 'Rename failed');
+}
+
+export interface UploadBatchResult {
+  successCount: number;
+  failureCount: number;
 }
 
 export async function uploadBatch(files: File[]): Promise<UploadBatchResult> {

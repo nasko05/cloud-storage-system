@@ -1,5 +1,5 @@
 import json
-from common import response
+from common import response, extract_user
 from files import list_files, upload_file, delete_file, move_file, rename_file
 from folders import create_folder, delete_folder, move_folder, rename_folder
 from sharing import list_shared_with_me, share_file, unshare_file
@@ -42,16 +42,15 @@ ACTIONS = {
 
 def handler(event, context):
     try:
-        claims = event.get('requestContext', {}).get('authorizer', {}).get('jwt', {}).get('claims', {})
-        user_id = claims.get('sub')
-        
-        if not user_id:
-            return response(401, {'error': 'Unauthorized'})
+        user_id, user_email = extract_user(event)
+    except ValueError:
+        return response(401, {'error': 'Unauthorized'})
 
+    try:
         body = json.loads(event.get('body') or '{}')
         ctx = {
             'user_id': user_id,
-            'user_email': claims.get('email', user_id),
+            'user_email': user_email,
             'body': body
         }
         

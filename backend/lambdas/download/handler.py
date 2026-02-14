@@ -1,34 +1,33 @@
 import json
 import time
+from common import s3, BUCKET, EXPIRY, response, extract_user
+from db_helpers import find_file_by_id, file_gsi
 from boto3.dynamodb.conditions import Key
-from common import s3, table, BUCKET, EXPIRY, response
+from common import table
 
 
 def handler(event, context):
     try:
-        claims = event.get('requestContext', {}).get('authorizer', {}).get('jwt', {}).get('claims', {})
-        user_id = claims.get('sub')
+        user_id, _user_email = extract_user(event)
+    except ValueError:
+        return response(401, {'error': 'Unauthorized'})
 
-        if not user_id:
-            return response(401, {'error': 'Unauthorized'})
-
+    try:
         body = json.loads(event.get('body') or '{}')
         file_id = body.get('fileId')
 
         if not file_id:
             return response(400, {'error': 'fileId required'})
 
-        # Find file by fileId
-        result = table.query(
-            IndexName='GSI1',
-            KeyConditionExpression=Key('gsi1pk').eq(f'FILE#{file_id}') & Key('gsi1sk').eq(f'FILE#{file_id}')
-        )
+        # Find file by fileId (do not require ownership -- download also checks share access)
+        file_item, _items, err = find_file_by_id(user_id, file_id, require_ownership=False)
 
-        items = result.get('Items', [])
-        if not items:
+        if not file_item:
+            if err:
+                return response(404, {'error': 'File not found'})
             return response(404, {'error': 'File not found'})
 
-        file = items[0]
+        file = file_item
         is_owner = file.get('ownerId') == user_id
         is_shared = False
         share_info = None

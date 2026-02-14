@@ -10,18 +10,9 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
-import type { DriveFile } from './File';
-import type { DriveFolder } from './Folder';
+import type { ContextMenuTarget, ContextMenuPosition } from '../types/drive';
 
-export type ContextMenuTarget =
-  | { type: 'file'; file: DriveFile }
-  | { type: 'folder'; folder: DriveFolder }
-  | null;
-
-export interface ContextMenuPosition {
-  mouseX: number;
-  mouseY: number;
-}
+export type { ContextMenuTarget, ContextMenuPosition } from '../types/drive';
 
 export interface ContextMenuProps {
   target: ContextMenuTarget;

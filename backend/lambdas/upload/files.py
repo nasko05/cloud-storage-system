@@ -1,26 +1,20 @@
 import time
 import random
 import string
-from datetime import datetime, timezone
+from common import s3, table, BUCKET, EXPIRY, response, utc_now_iso
+from path_utils import normalize_path, normalize_list_path
+from db_helpers import user_pk, file_sk, file_gsi, find_file_by_id, get_folder_or_404
 from boto3.dynamodb.conditions import Key
-from common import s3, table, BUCKET, EXPIRY, response
-
-
-def _normalized_list_path(folder):
-    if folder is None or (isinstance(folder, str) and not folder.strip()):
-        return None
-    path = folder.strip().rstrip('/')
-    return path if path.startswith('/') else f'/{path}'
 
 
 def list_files(user_id, folder=None):
-    list_path = _normalized_list_path(folder)
+    list_path = normalize_list_path(folder)
     is_root = list_path is None or list_path == '/'
 
     # Files in current directory
     file_prefix = 'FILE#/' if is_root else f'FILE#{list_path}/'
     file_result = table.query(
-        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(file_prefix)
+        KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(file_prefix)
     )
     target_path = '/' if is_root else list_path
     files = [
@@ -39,7 +33,7 @@ def list_files(user_id, folder=None):
     # Folders in current directory (direct children only)
     folder_prefix = 'FOLDER#/' if is_root else f'FOLDER#{list_path}/'
     folder_result = table.query(
-        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(folder_prefix)
+        KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(folder_prefix)
     )
     if is_root:
         folders = [
@@ -84,8 +78,7 @@ def upload_file(user_id, user_email, body):
     random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     file_id = f'{int(time.time() * 1000)}-{random_suffix}'
 
-    normalized_path = '/'.join(filter(None, file_path.split('/')))
-    normalized_path = f'/{normalized_path}' if normalized_path else '/'
+    normalized_path = normalize_path(file_path)
 
     # Auto-disambiguate: if a file with the same name already exists, append (1), (2), etc.
     filename = _disambiguate_filename(user_id, normalized_path, filename)
@@ -97,12 +90,12 @@ def upload_file(user_id, user_email, body):
         ExpiresIn=EXPIRY
     )
 
-    now = datetime.utcnow().isoformat() + 'Z'
+    now = utc_now_iso()
     file_item = {
-        'pk': f'USER#{user_id}',
-        'sk': f'FILE#{normalized_path}/{filename}',
-        'gsi1pk': f'FILE#{file_id}',
-        'gsi1sk': f'FILE#{file_id}',
+        'pk': user_pk(user_id),
+        'sk': file_sk(normalized_path, filename),
+        'gsi1pk': file_gsi(file_id),
+        'gsi1sk': file_gsi(file_id),
         'fileId': file_id,
         'filename': filename,
         'path': normalized_path,
@@ -127,38 +120,10 @@ def upload_file(user_id, user_email, body):
     })
 
 
-def _normalize_path(path):
-    """Normalize path: single leading slash, no trailing slash (except root)."""
-    if not path or not str(path).strip():
-        return '/'
-    parts = [p for p in str(path).strip().split('/') if p and p != '.' and p != '..']
-    if not parts:
-        return '/'
-    return '/' + '/'.join(parts)
-
-
-def _find_file_by_id(user_id, file_id):
-    """Look up a file via GSI1 and verify ownership. Returns (file_item, all_items, error_response)."""
-    if not file_id:
-        return None, [], response(400, {'error': 'fileId required'})
-
-    result = table.query(
-        IndexName='GSI1',
-        KeyConditionExpression=Key('gsi1pk').eq(f'FILE#{file_id}')
-    )
-    items = result.get('Items', [])
-    file_item = next((i for i in items if i.get('itemType') == 'FILE'), None)
-
-    if not file_item or file_item.get('ownerId') != user_id:
-        return None, items, response(403, {'error': 'Access denied'})
-
-    return file_item, items, None
-
-
 def _file_exists_in_folder(user_id, path, filename):
     """Check if a file with this name already exists at the given path."""
-    sk = f'FILE#{path}/{filename}'
-    result = table.get_item(Key={'pk': f'USER#{user_id}', 'sk': sk})
+    sk = file_sk(path, filename)
+    result = table.get_item(Key={'pk': user_pk(user_id), 'sk': sk})
     return result.get('Item') is not None
 
 
@@ -187,22 +152,21 @@ def _disambiguate_filename(user_id, path, filename):
 
 def move_file(user_id, file_id, destination_path):
     """Move a file to a different folder. S3 key stays the same."""
-    file_item, _items, err = _find_file_by_id(user_id, file_id)
+    file_item, _items, err = find_file_by_id(user_id, file_id)
     if err:
         return err
 
-    dest = _normalize_path(destination_path)
+    dest = normalize_path(destination_path)
 
     # Validate destination folder exists (unless root)
     if dest != '/':
-        pk = f'USER#{user_id}'
-        folder_check = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{dest}'})
-        if not folder_check.get('Item'):
+        _folder, folder_err = get_folder_or_404(user_id, dest)
+        if folder_err:
             return response(404, {'error': 'Destination folder not found', 'path': dest})
 
     old_sk = file_item['sk']
     filename = file_item['filename']
-    new_sk = f'FILE#{dest}/{filename}'
+    new_sk = file_sk(dest, filename)
 
     if old_sk == new_sk:
         return response(200, {'message': 'File already in destination', 'fileId': file_id, 'newPath': dest})
@@ -215,7 +179,7 @@ def move_file(user_id, file_id, destination_path):
             'path': dest
         })
 
-    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    now = utc_now_iso()
 
     # Build new item from old, updating path-related fields
     new_item = dict(file_item)
@@ -245,13 +209,13 @@ def rename_file(user_id, file_id, new_name):
     if len(name) > 255:
         return response(400, {'error': 'newName too long (max 255 characters)'})
 
-    file_item, _items, err = _find_file_by_id(user_id, file_id)
+    file_item, _items, err = find_file_by_id(user_id, file_id)
     if err:
         return err
 
     old_sk = file_item['sk']
     file_path = file_item['path']
-    new_sk = f'FILE#{file_path}/{name}'
+    new_sk = file_sk(file_path, name)
 
     if file_item['filename'] == name:
         return response(200, {'message': 'Name unchanged', 'fileId': file_id, 'newName': name})
@@ -264,7 +228,7 @@ def rename_file(user_id, file_id, new_name):
             'path': file_path
         })
 
-    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    now = utc_now_iso()
 
     new_item = dict(file_item)
     new_item['sk'] = new_sk
@@ -282,7 +246,7 @@ def rename_file(user_id, file_id, new_name):
 
 
 def delete_file(user_id, file_id):
-    file_item, items, err = _find_file_by_id(user_id, file_id)
+    file_item, items, err = find_file_by_id(user_id, file_id)
     if err:
         return err
 

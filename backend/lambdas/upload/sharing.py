@@ -2,7 +2,8 @@ import json
 import time
 from datetime import datetime
 from boto3.dynamodb.conditions import Key
-from common import table, SHARE_EXPIRY_DAYS, response
+from common import table, SHARE_EXPIRY_DAYS, response, utc_now_iso
+from db_helpers import file_gsi
 
 
 def list_shared_with_me(user_id):
@@ -35,7 +36,7 @@ def share_file(user_id, user_email, body):
 
     result = table.query(
         IndexName='GSI1',
-        KeyConditionExpression=Key('gsi1pk').eq(f'FILE#{file_id}') & Key('gsi1sk').eq(f'FILE#{file_id}')
+        KeyConditionExpression=Key('gsi1pk').eq(file_gsi(file_id)) & Key('gsi1sk').eq(file_gsi(file_id))
     )
     items = result.get('Items', [])
     if not items or items[0].get('ownerId') != user_id:
@@ -44,12 +45,12 @@ def share_file(user_id, user_email, body):
     file = items[0]
     target_user_id = share_with_user_id or share_with_email
     ttl = int(time.time()) + (expiry_days * 24 * 60 * 60)
-    now = datetime.utcnow().isoformat() + 'Z'
+    now = utc_now_iso()
 
     share_item = {
         'pk': f'SHARED#{target_user_id}',
         'sk': f'FILE#{file_id}',
-        'gsi1pk': f'FILE#{file_id}',
+        'gsi1pk': file_gsi(file_id),
         'gsi1sk': f'SHARED#{target_user_id}',
         'fileId': file_id,
         'filename': file['filename'],
@@ -82,7 +83,7 @@ def unshare_file(user_id, body):
 
     result = table.query(
         IndexName='GSI1',
-        KeyConditionExpression=Key('gsi1pk').eq(f'FILE#{file_id}') & Key('gsi1sk').eq(f'FILE#{file_id}')
+        KeyConditionExpression=Key('gsi1pk').eq(file_gsi(file_id)) & Key('gsi1sk').eq(file_gsi(file_id))
     )
     items = result.get('Items', [])
     if not items or items[0].get('ownerId') != user_id:
