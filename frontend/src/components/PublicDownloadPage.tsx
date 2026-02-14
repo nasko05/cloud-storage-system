@@ -32,13 +32,14 @@ export function PublicDownloadPage({ token }: PublicDownloadPageProps): React.Re
   const [downloading, setDownloading] = useState(false);
   const [downloadError, setDownloadError] = useState('');
 
-  const loadInfo = useCallback(async () => {
+  const loadInfo = useCallback(async (isRefresh = false) => {
     setLoading(true);
-    setError('');
+    if (!isRefresh) setError('');
     const result = await fetchPublicLinkInfo(token);
     if (result.info) {
       setInfo(result.info);
-    } else {
+      setError('');
+    } else if (!isRefresh) {
       setError(result.error ?? 'Link not found or expired');
     }
     setLoading(false);
@@ -61,8 +62,8 @@ export function PublicDownloadPage({ token }: PublicDownloadPageProps): React.Re
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
-      // Refresh info to update download count
-      void loadInfo();
+      // Refresh info to update download count (don't show error state if refresh fails)
+      void loadInfo(true);
     } else {
       setDownloadError(result.error ?? 'Download failed');
     }
