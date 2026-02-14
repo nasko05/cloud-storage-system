@@ -188,12 +188,6 @@ export function ShareDialog({
     }
   };
 
-  const handleCopyLink = async (): Promise<void> => {
-    const link = `${window.location.origin}/shared/${fileId}`;
-    await copyToClipboard(link);
-    setSnackMsg('Link copied to clipboard');
-  };
-
   const handleRevoke = async (sharedWith: string): Promise<void> => {
     const result = await revokeShare(fileId, sharedWith);
     if (result.success) {
@@ -335,22 +329,6 @@ export function ShareDialog({
                 inputProps={{ min: todayStr }}
                 helperText={`Expires in ${daysUntil(expiryDate)} day${daysUntil(expiryDate) === 1 ? '' : 's'}`}
               />
-
-              <Box>
-                <Button
-                  variant="outlined"
-                  size="small"
-                  startIcon={<LinkRoundedIcon />}
-                  endIcon={<ContentCopyRoundedIcon />}
-                  onClick={handleCopyLink}
-                  sx={{ textTransform: 'none' }}
-                >
-                  Copy shareable link
-                </Button>
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', mt: 0.5 }}>
-                  Anyone with the link and permissions can access this file.
-                </Typography>
-              </Box>
             </Stack>
           )}
 

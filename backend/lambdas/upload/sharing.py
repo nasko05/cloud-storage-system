@@ -180,7 +180,8 @@ def update_share_permission(user_id, body):
 
     table.update_item(
         Key=share_key,
-        UpdateExpression='SET permission = :p',
+        UpdateExpression='SET #perm = :p',
+        ExpressionAttributeNames={'#perm': 'permission'},
         ExpressionAttributeValues={':p': permission}
     )
 
