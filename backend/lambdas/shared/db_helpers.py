@@ -44,6 +44,11 @@ def folder_sk_prefix(path):
     return f'FOLDER#{path}/'
 
 
+def public_link_pk(token):
+    """Partition key for a public share link."""
+    return f'PUBLIC_LINK#{token}'
+
+
 # ---------------------------------------------------------------------------
 # File lookup by ID (via GSI1) with ownership check
 # ---------------------------------------------------------------------------

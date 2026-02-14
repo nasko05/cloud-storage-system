@@ -50,6 +50,11 @@ zip -rq "../../$BUILD_DIR/download-lambda.zip" *.py
 for f in $SHARED_FILES; do rm -f "$f"; done
 cd ../..
 
+echo "Packaging Public Download Lambda..."
+cd lambdas/public_download
+zip -rq "../../$BUILD_DIR/public-download-lambda.zip" *.py
+cd ../..
+
 ARTIFACT_BUCKET="${ENV_NAME}-cloudstorage-artifacts-${ACCOUNT_ID}-${REGION}"
 
 echo "Creating artifact bucket: $ARTIFACT_BUCKET"
@@ -60,6 +65,7 @@ fi
 echo "Uploading Lambda packages to S3..."
 aws s3 cp "$BUILD_DIR/upload-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/upload-lambda.zip" --profile "$PROFILE"
 aws s3 cp "$BUILD_DIR/download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/download-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/public-download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/public-download-lambda.zip" --profile "$PROFILE"
 
 echo "Deploying CloudFormation stack..."
 aws cloudformation deploy \
@@ -76,6 +82,7 @@ echo "Updating Lambda functions with packaged code..."
 
 UPLOAD_FN="${ENV_NAME}-upload-fn"
 DOWNLOAD_FN="${ENV_NAME}-download-fn"
+PUBLIC_DOWNLOAD_FN="${ENV_NAME}-public-download-fn"
 
 aws lambda update-function-code \
   --function-name "$UPLOAD_FN" \
@@ -89,6 +96,14 @@ aws lambda update-function-code \
   --function-name "$DOWNLOAD_FN" \
   --s3-bucket "$ARTIFACT_BUCKET" \
   --s3-key "lambdas/download-lambda.zip" \
+  --region "$REGION" \
+  --profile "$PROFILE" \
+  --no-cli-pager
+
+aws lambda update-function-code \
+  --function-name "$PUBLIC_DOWNLOAD_FN" \
+  --s3-bucket "$ARTIFACT_BUCKET" \
+  --s3-key "lambdas/public-download-lambda.zip" \
   --region "$REGION" \
   --profile "$PROFILE" \
   --no-cli-pager

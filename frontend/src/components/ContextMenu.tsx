@@ -9,6 +9,7 @@ import {
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import type { ContextMenuTarget, ContextMenuPosition } from '../types/drive';
 
@@ -23,6 +24,7 @@ export interface ContextMenuProps {
   onRename: () => void;
   onMoveTo: () => void;
   onDownload: () => void;
+  onShare: () => void;
   onDelete: () => void;
 }
 
@@ -34,6 +36,7 @@ export function ContextMenu({
   onRename,
   onMoveTo,
   onDownload,
+  onShare,
   onDelete
 }: ContextMenuProps): React.ReactElement | null {
   const open = target !== null && position !== null;
@@ -87,6 +90,19 @@ export function ContextMenu({
             <DownloadRoundedIcon fontSize="small" />
           </ListItemIcon>
           <ListItemText>Download</ListItemText>
+        </MenuItem>
+      )}
+      {isFile && !isBulk && (
+        <MenuItem
+          onClick={() => {
+            onClose();
+            onShare();
+          }}
+        >
+          <ListItemIcon>
+            <ShareRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Share</ListItemText>
         </MenuItem>
       )}
       <Divider />

@@ -33,6 +33,8 @@ export interface DriveFile {
   readonly filename: string;
   readonly size: number;
   readonly createdAt: string;
+  readonly isShared?: boolean;
+  readonly hasPublicLink?: boolean;
 }
 
 /** Parse an unknown API value into a DriveFile, or null if invalid. */
@@ -46,7 +48,10 @@ export function driveFileFromUnknown(value: unknown): DriveFile | null {
     typeof c.createdAt !== 'string'
   )
     return null;
-  return { fileId: c.fileId, filename: c.filename, size: c.size, createdAt: c.createdAt };
+  const rec = value as Record<string, unknown>;
+  const isShared = rec.isShared === true;
+  const hasPublicLink = rec.hasPublicLink === true;
+  return { fileId: c.fileId, filename: c.filename, size: c.size, createdAt: c.createdAt, isShared, hasPublicLink };
 }
 
 /** Format a byte size into a human-readable string. */
@@ -100,4 +105,57 @@ export interface MoveItem {
   /** For folders, the full path; for files, the fileId. */
   path?: string;
   name: string;
+}
+
+// ---------------------------------------------------------------------------
+// Sharing
+// ---------------------------------------------------------------------------
+
+export type SharePermission = 'read' | 'download' | 'edit';
+
+export type ShareTarget =
+  | { type: 'file'; file: DriveFile }
+  | null;
+
+/** A file that has been shared with the current user. */
+export interface SharedFile {
+  fileId: string;
+  filename: string;
+  sharedBy: string;
+  sharedByEmail: string;
+  permission: SharePermission;
+  expiresAt: string;
+}
+
+/** A single share record for a file owned by the current user. */
+export interface FileShare {
+  sharedWith: string;
+  permission: SharePermission;
+  sharedAt: string;
+  expiresAt: string;
+}
+
+// ---------------------------------------------------------------------------
+// Public Links
+// ---------------------------------------------------------------------------
+
+/** A public share link record for a file owned by the current user. */
+export interface PublicLink {
+  token: string;
+  fileId: string;
+  filename: string;
+  hasPassword: boolean;
+  downloadCount: number;
+  createdAt: string;
+  expiresAt: string;
+}
+
+/** Metadata returned by the unauthenticated GET /public/{token} endpoint. */
+export interface PublicLinkInfo {
+  filename: string;
+  size: number;
+  contentType: string;
+  hasPassword: boolean;
+  downloadCount: number;
+  expiresAt: string;
 }

@@ -4,7 +4,7 @@ import string
 from botocore.exceptions import ClientError
 from common import s3, table, BUCKET, EXPIRY, response, utc_now_iso
 from path_utils import normalize_path, normalize_list_path, validate_path_segment
-from db_helpers import user_pk, file_sk, file_gsi, find_file_by_id, get_folder_or_404, file_sk_prefix, folder_sk_prefix
+from db_helpers import user_pk, file_sk, file_gsi, find_file_by_id, get_folder_or_404, file_sk_prefix, folder_sk_prefix, shared_pk
 from boto3.dynamodb.conditions import Key
 
 
@@ -32,7 +32,9 @@ def list_files(user_id, folder=None):
     ]
 
     # Folders in current directory (direct children only)
-    fldp = folder_sk_prefix('/') if is_root else folder_sk_prefix(list_path)
+    # Root folders have sk like FOLDER#/Name, so prefix must be FOLDER#/
+    # (folder_sk_prefix('/') yields FOLDER#// which never matches)
+    fldp = 'FOLDER#/' if is_root else folder_sk_prefix(list_path)
     folder_result = table.query(
         KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(fldp)
     )
@@ -61,6 +63,38 @@ def list_files(user_id, folder=None):
             and item.get('path', '').startswith(prefix_with_slash)
             and item['path'].replace(prefix_with_slash, '').count('/') == 0
         ]
+
+    # Enrich files with isShared / hasPublicLink flags via GSI1 queries
+    shared_file_ids = set()
+    public_link_file_ids = set()
+    for f in files:
+        fid = f['fileId']
+        try:
+            share_result = table.query(
+                IndexName='GSI1',
+                KeyConditionExpression=Key('gsi1pk').eq(file_gsi(fid)) & Key('gsi1sk').begins_with('SHARED#'),
+                Limit=1,
+                Select='COUNT'
+            )
+            if share_result.get('Count', 0) > 0:
+                shared_file_ids.add(fid)
+        except Exception:
+            pass
+        try:
+            pl_result = table.query(
+                IndexName='GSI1',
+                KeyConditionExpression=Key('gsi1pk').eq(file_gsi(fid)) & Key('gsi1sk').begins_with('PUBLIC_LINK#'),
+                Limit=1,
+                Select='COUNT'
+            )
+            if pl_result.get('Count', 0) > 0:
+                public_link_file_ids.add(fid)
+        except Exception:
+            pass
+
+    for f in files:
+        f['isShared'] = f['fileId'] in shared_file_ids
+        f['hasPublicLink'] = f['fileId'] in public_link_file_ids
 
     return response(200, {'files': files, 'folders': folders})
 

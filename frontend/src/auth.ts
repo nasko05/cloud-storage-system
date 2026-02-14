@@ -43,7 +43,7 @@ export const login = async (email: string, password: string): Promise<string> =>
     const authDetails = new AuthenticationDetails({ Username: email, Password: password });
 
     user.authenticateUser(authDetails, {
-      onSuccess: (result) => resolve(result.getAccessToken().getJwtToken()),
+      onSuccess: (result) => resolve(result.getIdToken().getJwtToken()),
       onFailure: (error) => reject(error),
       newPasswordRequired: () => reject(new Error('Password change required'))
     });
@@ -70,6 +70,6 @@ export const getToken = async (): Promise<string | null> =>
         return;
       }
 
-      resolve(session.getAccessToken().getJwtToken());
+      resolve(session.getIdToken().getJwtToken());
     });
   });

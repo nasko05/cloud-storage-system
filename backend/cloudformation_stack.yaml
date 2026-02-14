@@ -228,6 +228,12 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-download-fn"
       RetentionInDays: !Ref LogRetentionDays
 
+  PublicDownloadFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-public-download-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
   #############################################################################
   # IAM ROLES - Least Privilege per Lambda
   #############################################################################
@@ -277,6 +283,12 @@ Resources:
                 Resource:
                   - !GetAtt MetadataTable.Arn
                   - !Sub "${MetadataTable.Arn}/index/*"
+              - Sid: CognitoLookup
+                Effect: Allow
+                Action:
+                  - cognito-idp:AdminGetUser
+                Resource:
+                  - !GetAtt UserPool.Arn
 
   DownloadLambdaRole:
     Type: AWS::IAM::Role
@@ -317,6 +329,42 @@ Resources:
                   - !GetAtt MetadataTable.Arn
                   - !Sub "${MetadataTable.Arn}/index/*"
 
+  PublicDownloadLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-public-download-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: PublicDownloadLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-public-download-fn:*"
+              - Sid: S3DownloadAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                Resource:
+                  - !Sub "${CloudStorageBucket.Arn}/*"
+              - Sid: DynamoDBAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt MetadataTable.Arn
+
   #############################################################################
   # LAMBDA FUNCTIONS
   #############################################################################
@@ -336,6 +384,7 @@ Resources:
           METADATA_TABLE_NAME: !Ref MetadataTable
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
           SHARE_EXPIRY_DAYS: !Ref ShareExpiryDays
+          USER_POOL_ID: !Ref UserPool
       Code:
         ZipFile: |
           def handler(event, context):
@@ -349,6 +398,26 @@ Resources:
       Runtime: python3.11
       Handler: handler.handler
       Role: !GetAtt DownloadLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTable
+          PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  PublicDownloadFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: PublicDownloadFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-public-download-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt PublicDownloadLambdaRole.Arn
       Timeout: 30
       MemorySize: 256
       Environment:
@@ -440,6 +509,14 @@ Resources:
       IntegrationUri: !GetAtt DownloadFunction.Arn
       PayloadFormatVersion: "2.0"
 
+  PublicDownloadIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt PublicDownloadFunction.Arn
+      PayloadFormatVersion: "2.0"
+
   #############################################################################
   # API ROUTES
   #############################################################################
@@ -470,6 +547,22 @@ Resources:
       AuthorizerId: !Ref JwtAuthorizer
       Target: !Sub "integrations/${UploadIntegration}"
 
+  PublicDownloadGetRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /public/{token}"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${PublicDownloadIntegration}"
+
+  PublicDownloadPostRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /public/{token}"
+      AuthorizationType: NONE
+      Target: !Sub "integrations/${PublicDownloadIntegration}"
+
   #############################################################################
   # LAMBDA PERMISSIONS
   #############################################################################
@@ -485,6 +578,14 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref DownloadFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  PublicDownloadFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref PublicDownloadFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
@@ -546,3 +647,7 @@ Outputs:
   DownloadFunctionArn:
     Description: Download Lambda function ARN
     Value: !GetAtt DownloadFunction.Arn
+
+  PublicDownloadFunctionArn:
+    Description: Public Download Lambda function ARN
+    Value: !GetAtt PublicDownloadFunction.Arn
