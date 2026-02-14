@@ -1,9 +1,10 @@
 import time
 import random
 import string
+from botocore.exceptions import ClientError
 from common import s3, table, BUCKET, EXPIRY, response, utc_now_iso
-from path_utils import normalize_path, normalize_list_path
-from db_helpers import user_pk, file_sk, file_gsi, find_file_by_id, get_folder_or_404
+from path_utils import normalize_path, normalize_list_path, validate_path_segment
+from db_helpers import user_pk, file_sk, file_gsi, find_file_by_id, get_folder_or_404, file_sk_prefix, folder_sk_prefix
 from boto3.dynamodb.conditions import Key
 
 
@@ -12,9 +13,9 @@ def list_files(user_id, folder=None):
     is_root = list_path is None or list_path == '/'
 
     # Files in current directory
-    file_prefix = 'FILE#/' if is_root else f'FILE#{list_path}/'
+    fp = file_sk_prefix('/') if is_root else file_sk_prefix(list_path)
     file_result = table.query(
-        KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(file_prefix)
+        KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(fp)
     )
     target_path = '/' if is_root else list_path
     files = [
@@ -31,9 +32,9 @@ def list_files(user_id, folder=None):
     ]
 
     # Folders in current directory (direct children only)
-    folder_prefix = 'FOLDER#/' if is_root else f'FOLDER#{list_path}/'
+    fldp = folder_sk_prefix('/') if is_root else folder_sk_prefix(list_path)
     folder_result = table.query(
-        KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(folder_prefix)
+        KeyConditionExpression=Key('pk').eq(user_pk(user_id)) & Key('sk').begins_with(fldp)
     )
     if is_root:
         folders = [
@@ -74,6 +75,13 @@ def upload_file(user_id, user_email, body):
 
     if not filename:
         return response(400, {'error': 'filename required'})
+
+    filename = str(filename).strip()
+    if '/' in filename or '..' in filename:
+        return response(400, {'error': 'filename must not contain / or ..'})
+    ok, err = validate_path_segment(filename, 'filename')
+    if not ok:
+        return err
 
     random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     file_id = f'{int(time.time() * 1000)}-{random_suffix}'
@@ -191,7 +199,7 @@ def move_file(user_id, file_id, destination_path):
         # Delete old, write new (atomic per-item)
         table.delete_item(Key={'pk': file_item['pk'], 'sk': old_sk})
         table.put_item(Item=new_item)
-    except Exception as e:
+    except ClientError as e:
         print(f'move_file failed: {e}')
         return response(500, {'error': 'Internal server error'})
 
@@ -238,7 +246,7 @@ def rename_file(user_id, file_id, new_name):
     try:
         table.delete_item(Key={'pk': file_item['pk'], 'sk': old_sk})
         table.put_item(Item=new_item)
-    except Exception as e:
+    except ClientError as e:
         print(f'rename_file failed: {e}')
         return response(500, {'error': 'Internal server error'})
 
@@ -252,7 +260,7 @@ def delete_file(user_id, file_id):
 
     try:
         s3.delete_object(Bucket=BUCKET, Key=file_item['s3Key'])
-    except Exception as e:
+    except ClientError as e:
         print(f'S3 delete failed: {e}')
 
     with table.batch_writer() as batch:

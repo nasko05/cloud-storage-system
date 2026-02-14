@@ -1,19 +1,10 @@
 import React from 'react';
 import { Stack, Typography } from '@mui/material';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
+import type { DriveFolder } from '../types/drive';
 
-export interface DriveFolder {
-  folderId: string;
-  name: string;
-  path: string;
-  /** ISO date string when the folder was created. */
-  createdAt?: string;
-}
-
-export const FOLDER_ICON_DEFAULT_PROPS = {
-  sx: { fontSize: 48, color: 'warning.main', mb: 1 },
-  'aria-hidden': true
-} as const;
+// Re-export so existing `import from './Folder'` still resolves
+export type { DriveFolder } from '../types/drive';
 
 export interface FolderItemProps {
   folder: DriveFolder;

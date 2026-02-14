@@ -2,6 +2,7 @@
 Shared DynamoDB helpers: key builders, file lookup, folder existence check.
 """
 from boto3.dynamodb.conditions import Key
+from botocore.exceptions import ClientError
 from common import table, response
 
 
@@ -11,6 +12,10 @@ from common import table, response
 
 def user_pk(user_id):
     return f'USER#{user_id}'
+
+
+def shared_pk(user_id):
+    return f'SHARED#{user_id}'
 
 
 def file_sk(path, filename):
@@ -27,6 +32,16 @@ def file_gsi(file_id):
 
 def folder_gsi(folder_id):
     return f'FOLDER#{folder_id}'
+
+
+def file_sk_prefix(path):
+    """Prefix for querying all files under a folder path."""
+    return f'FILE#{path}/'
+
+
+def folder_sk_prefix(path):
+    """Prefix for querying all subfolders under a folder path."""
+    return f'FOLDER#{path}/'
 
 
 # ---------------------------------------------------------------------------
@@ -74,7 +89,7 @@ def get_folder_or_404(user_id, path):
     try:
         result = table.get_item(Key={'pk': pk, 'sk': sk})
         item = result.get('Item')
-    except Exception as e:
+    except ClientError as e:
         print(f'get_item folder failed: {e}')
         return None, response(500, {'error': 'Internal server error'})
 

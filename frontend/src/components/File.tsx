@@ -7,61 +7,11 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
-import type { FileShape, FileGridRow } from '../types/drive';
+import type { DriveFile } from '../types/drive';
 
-// Re-export types so existing imports from './File' keep working
-export type { FileShape, FileGridRow } from '../types/drive';
-export type { DriveListRow } from '../types/drive';
-
-export class DriveFile {
-  public readonly fileId: string;
-  public readonly filename: string;
-  public readonly size: number;
-  public readonly createdAt: string;
-  public constructor(fileId: string, filename: string, size: number, createdAt: string) {
-    this.fileId = fileId;
-    this.filename = filename;
-    this.size = size;
-    this.createdAt = createdAt;
-  }
-
-  public static fromUnknown(value: unknown): DriveFile | null {
-    if (!value || typeof value !== 'object') {
-      return null;
-    }
-
-    const candidate = value as Partial<FileShape>;
-    if (
-      typeof candidate.fileId !== 'string' ||
-      typeof candidate.filename !== 'string' ||
-      typeof candidate.size !== 'number' ||
-      typeof candidate.createdAt !== 'string'
-    ) {
-      return null;
-    }
-
-    return new DriveFile(candidate.fileId, candidate.filename, candidate.size, candidate.createdAt);
-  }
-
-  public get formattedSize(): string {
-    if (this.size < 1024) {
-      return `${this.size} B`;
-    }
-
-    if (this.size < 1024 * 1024) {
-      return `${(this.size / 1024).toFixed(1)} KB`;
-    }
-
-    return `${(this.size / (1024 * 1024)).toFixed(1)} MB`;
-  }
-
-  public toGridRow(): FileGridRow {
-    return {
-      id: this.fileId,
-      file: this
-    };
-  }
-}
+// Re-export types so existing `import from './File'` still resolves
+export type { DriveFile, FileShape, FileGridRow, DriveListRow } from '../types/drive';
+export { driveFileFromUnknown, formatFileSize, toFileGridRow } from '../types/drive';
 
 // ---------------------------------------------------------------------------
 // Row components

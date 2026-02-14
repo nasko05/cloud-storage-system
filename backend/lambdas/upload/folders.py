@@ -5,7 +5,7 @@ from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
 from common import table, response, utc_now_iso
 from path_utils import validate_path, validate_path_segment, MAX_PATH_LENGTH
-from db_helpers import user_pk, folder_sk, folder_gsi, get_folder_or_404
+from db_helpers import user_pk, folder_sk, folder_gsi, get_folder_or_404, file_sk_prefix, folder_sk_prefix
 
 
 def create_folder(user_id, folder_name, parent_path=None):
@@ -89,18 +89,16 @@ def delete_folder(user_id, path):
         return response(404, {'error': 'Folder not found', 'path': normalized})
 
     # Reject if folder contains files
-    file_prefix = f'FILE#{normalized}/'
     file_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(file_prefix),
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(file_sk_prefix(normalized)),
         Limit=1
     )
     if file_result.get('Items'):
         return response(400, {'error': 'Folder is not empty (contains files)', 'path': normalized})
 
     # Reject if folder contains subfolders
-    folder_prefix = f'FOLDER#{normalized}/'
     subfolder_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(folder_prefix),
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(folder_sk_prefix(normalized)),
         Limit=1
     )
     if subfolder_result.get('Items'):
@@ -108,7 +106,7 @@ def delete_folder(user_id, path):
 
     try:
         table.delete_item(Key={'pk': pk, 'sk': folder_sk(normalized)})
-    except Exception as e:
+    except ClientError as e:
         print(f'delete_item folder failed: {e}')
         return response(500, {'error': 'Internal server error'})
 
@@ -122,13 +120,13 @@ def _collect_nested_items(user_id, folder_path):
 
     # Subfolders (includes the folder itself via exact match, plus children via prefix)
     folder_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(f'FOLDER#{folder_path}')
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(folder_sk(folder_path))
     )
     all_items.extend(folder_result.get('Items', []))
 
     # Files inside this folder and all subfolders
     file_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(f'FILE#{folder_path}/')
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(file_sk_prefix(folder_path))
     )
     all_items.extend(file_result.get('Items', []))
 
@@ -219,7 +217,7 @@ def move_folder(user_id, folder_path, destination_path):
         with table.batch_writer() as batch:
             for item in new_items:
                 batch.put_item(Item=item)
-    except Exception as e:
+    except ClientError as e:
         print(f'move_folder batch failed: {e}')
         return response(500, {'error': 'Internal server error'})
 
@@ -276,7 +274,7 @@ def rename_folder(user_id, folder_path, new_name):
         with table.batch_writer() as batch:
             for item in new_items:
                 batch.put_item(Item=item)
-    except Exception as e:
+    except ClientError as e:
         print(f'rename_folder batch failed: {e}')
         return response(500, {'error': 'Internal server error'})
 

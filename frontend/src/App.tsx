@@ -1,4 +1,4 @@
-import React, { ChangeEvent, useCallback, useEffect, useState } from 'react';
+import React, { ChangeEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
   AppBar,
@@ -34,9 +34,8 @@ import {
   renameFolderResult
 } from './service/driveService';
 import type { DriveFolder } from './components/Folder';
-import { DriveFile, type DriveListRow } from './components/File';
-import type { FileGridRow } from './types/drive';
-import type { ContextMenuTarget, ContextMenuPosition, RenameTarget, MoveItem } from './types/drive';
+import type { DriveFile, DriveListRow, FileGridRow, ContextMenuTarget, ContextMenuPosition, RenameTarget, MoveItem } from './types/drive';
+import { toFileGridRow } from './types/drive';
 import { FileColumnsFactory, ListColumnsFactory } from './components/FileColumns';
 import { GridLayout, type GridSize } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
@@ -395,13 +394,20 @@ function App(): JSX.Element {
   // Computed values
   // =========================================================================
 
-  const rows: FileGridRow[] = files.map((file) => file.toGridRow());
-  const columns = FileColumnsFactory.create({
-    onDownload: handleDownload,
-    onDelete: handleDelete
-  });
+  const rows: FileGridRow[] = useMemo(
+    () => files.map((file) => toFileGridRow(file)),
+    [files]
+  );
 
-  const listRows: DriveListRow[] = React.useMemo(() => {
+  const columns = useMemo(
+    () => FileColumnsFactory.create({
+      onDownload: handleDownload,
+      onDelete: handleDelete
+    }),
+    [handleDownload, handleDelete]
+  );
+
+  const listRows: DriveListRow[] = useMemo(() => {
     const folderRows: DriveListRow[] = folders.map((f) => ({
       id: f.folderId,
       type: 'folder' as const,
@@ -421,7 +427,7 @@ function App(): JSX.Element {
     return combined;
   }, [folders, files]);
 
-  const listColumns = React.useMemo(
+  const listColumns = useMemo(
     () =>
       ListColumnsFactory.create({
         onDownload: handleDownload,
@@ -429,7 +435,7 @@ function App(): JSX.Element {
         onFolderClick: (folder) => setCurrentPath(folder.path),
         onDeleteFolder: handleDeleteFolder
       }),
-    []
+    [handleDownload, handleDelete, handleDeleteFolder]
   );
 
   // =========================================================================

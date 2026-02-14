@@ -1,6 +1,5 @@
 import { useCallback } from 'react';
-import type { DriveFile } from '../components/File';
-import type { DriveFolder } from '../components/Folder';
+import type { DriveFile, DriveFolder } from '../types/drive';
 import { deleteFolder } from '../api';
 import {
   getFileDownloadUrl,

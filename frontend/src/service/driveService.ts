@@ -12,8 +12,8 @@ import {
   renameFolder as apiRenameFolder,
   uploadFile
 } from '../api';
-import { DriveFile } from '../components/File';
-import type { DriveFolder } from '../components/Folder';
+import type { DriveFile, DriveFolder } from '../types/drive';
+import { driveFileFromUnknown } from '../types/drive';
 
 // ---------------------------------------------------------------------------
 // Shared folder parser (used by MoveDialog as well)
@@ -56,30 +56,30 @@ async function wrapApiCall<T extends { error?: string }>(
 }
 
 // ---------------------------------------------------------------------------
+// File collection parser
+// ---------------------------------------------------------------------------
+
+function filesFromUnknown(payload: unknown): DriveFile[] {
+  if (!Array.isArray(payload)) return [];
+  return payload
+    .map((item) => driveFileFromUnknown(item))
+    .filter((item): item is DriveFile => item !== null);
+}
+
+// ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 export interface FetchFilesResult {
-  files: InstanceType<typeof DriveFile>[];
+  files: DriveFile[];
   folders: DriveFolder[];
   error?: string;
-}
-
-export class FileCollection {
-  public static fromUnknown(payload: unknown): InstanceType<typeof DriveFile>[] {
-    if (!Array.isArray(payload)) {
-      return [];
-    }
-    return payload
-      .map((item) => DriveFile.fromUnknown(item))
-      .filter((item): item is InstanceType<typeof DriveFile> => item !== null);
-  }
 }
 
 export async function fetchFiles(folder?: string): Promise<FetchFilesResult> {
   try {
     const data = await listFiles(folder);
-    const files = FileCollection.fromUnknown(data.files);
+    const files = filesFromUnknown(data.files);
     const folders = Array.isArray(data.folders)
       ? data.folders.map(parseFolder).filter((f): f is DriveFolder => f !== null)
       : [];

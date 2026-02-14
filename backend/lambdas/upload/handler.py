@@ -1,4 +1,5 @@
 import json
+import traceback
 from common import response, extract_user
 from files import list_files, upload_file, delete_file, move_file, rename_file
 from folders import create_folder, delete_folder, move_folder, rename_folder
@@ -62,5 +63,5 @@ def handler(event, context):
         return upload_file(ctx['user_id'], ctx['user_email'], body)
 
     except Exception as e:
-        print(f'Error: {e}')
+        print(json.dumps({'error': str(e), 'traceback': traceback.format_exc()}))
         return response(500, {'error': 'Internal server error'})

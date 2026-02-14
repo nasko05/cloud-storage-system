@@ -1,7 +1,8 @@
 import json
 import time
+import traceback
 from common import s3, BUCKET, EXPIRY, response, extract_user
-from db_helpers import find_file_by_id, file_gsi
+from db_helpers import find_file_by_id, file_gsi, shared_pk
 from boto3.dynamodb.conditions import Key
 from common import table
 
@@ -22,10 +23,8 @@ def handler(event, context):
         # Find file by fileId (do not require ownership -- download also checks share access)
         file_item, _items, err = find_file_by_id(user_id, file_id, require_ownership=False)
 
-        if not file_item:
-            if err:
-                return response(404, {'error': 'File not found'})
-            return response(404, {'error': 'File not found'})
+        if err:
+            return err
 
         file = file_item
         is_owner = file.get('ownerId') == user_id
@@ -35,7 +34,7 @@ def handler(event, context):
         # Check share access if not owner
         if not is_owner:
             share_result = table.get_item(
-                Key={'pk': f'SHARED#{user_id}', 'sk': f'FILE#{file_id}'}
+                Key={'pk': shared_pk(user_id), 'sk': f'FILE#{file_id}'}
             )
             share = share_result.get('Item')
             if share:
@@ -98,5 +97,5 @@ def handler(event, context):
         return response(200, result)
 
     except Exception as e:
-        print(f'Download error: {e}')
+        print(json.dumps({'error': str(e), 'traceback': traceback.format_exc()}))
         return response(500, {'error': 'Internal server error'})

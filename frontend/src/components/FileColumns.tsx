@@ -11,11 +11,10 @@ import type {
   GridSortCellParams
 } from '@mui/x-data-grid';
 import { getExtension } from '../service/fileUtils';
-import type { DriveFile } from './File';
+import type { DriveFile, DriveFolder, FileGridRow, DriveListRow } from '../types/drive';
+import { formatFileSize } from '../types/drive';
 import { FileItem, FileActions } from './File';
 import { FolderItem } from './Folder';
-import type { DriveFolder } from '../types/drive';
-import type { FileGridRow, DriveListRow } from '../types/drive';
 
 // ---------------------------------------------------------------------------
 // Shared cell renderers
@@ -105,7 +104,7 @@ export class FileColumnsFactory {
         type: 'number',
         valueGetter: (params) => params.row.file.size,
         renderCell: (params: GridRenderCellParams<FileGridRow>) => (
-          <OutlinedChipCell label={params.row.file.formattedSize} />
+          <OutlinedChipCell label={formatFileSize(params.row.file.size)} />
         )
       },
       {
@@ -177,7 +176,7 @@ export class ListColumnsFactory {
         sortComparator: listRowSortFoldersLast,
         renderCell: (params: GridRenderCellParams<DriveListRow>) =>
           params.row.type === 'file'
-            ? <OutlinedChipCell label={params.row.file.formattedSize} />
+            ? <OutlinedChipCell label={formatFileSize(params.row.file.size)} />
             : <>{'\u2014'}</>
       },
       {
