@@ -4,6 +4,7 @@ from common import response, extract_user
 from files import list_files, upload_file, delete_file, move_file, rename_file
 from folders import create_folder, delete_folder, move_folder, rename_folder
 from sharing import list_shared_with_me, share_file, unshare_file, list_file_shares, update_share_permission
+from public_links import create_public_link, list_public_links, delete_public_link, update_public_link
 
 # Action handlers registry
 ACTIONS = {
@@ -40,6 +41,10 @@ ACTIONS = {
     'unshare': lambda ctx: unshare_file(ctx['user_id'], ctx['body']),
     'list-shares': lambda ctx: list_file_shares(ctx['user_id'], ctx['body']),
     'update-share': lambda ctx: update_share_permission(ctx['user_id'], ctx['body']),
+    'create-public-link': lambda ctx: create_public_link(ctx['user_id'], ctx['user_email'], ctx['body']),
+    'list-public-links': lambda ctx: list_public_links(ctx['user_id'], ctx['body']),
+    'delete-public-link': lambda ctx: delete_public_link(ctx['user_id'], ctx['body']),
+    'update-public-link': lambda ctx: update_public_link(ctx['user_id'], ctx['body']),
 }
 
 

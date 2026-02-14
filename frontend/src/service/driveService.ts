@@ -15,9 +15,15 @@ import {
   renameFile as apiRenameFile,
   renameFolder as apiRenameFolder,
   shareFile as apiShareFile,
-  uploadFile
+  uploadFile,
+  createPublicLink as apiCreatePublicLink,
+  listPublicLinks as apiListPublicLinks,
+  deletePublicLink as apiDeletePublicLink,
+  updatePublicLink as apiUpdatePublicLink,
+  getPublicLinkInfo as apiGetPublicLinkInfo,
+  downloadPublicLink as apiDownloadPublicLink,
 } from '../api';
-import type { DriveFile, DriveFolder, SharedFile, FileShare, SharePermission } from '../types/drive';
+import type { DriveFile, DriveFolder, SharedFile, FileShare, SharePermission, PublicLink, PublicLinkInfo } from '../types/drive';
 import { driveFileFromUnknown } from '../types/drive';
 
 // ---------------------------------------------------------------------------
@@ -228,6 +234,132 @@ export async function updateSharePermissionResult(
     () => apiUpdateSharePermission(fileId, targetUserId, permission),
     'Update permission failed'
   );
+}
+
+// ---------------------------------------------------------------------------
+// Public link management (authenticated CRUD)
+// ---------------------------------------------------------------------------
+
+export interface CreatePublicLinkResult {
+  success: boolean;
+  link?: PublicLink;
+  error?: string;
+}
+
+export async function createPublicLinkResult(
+  fileId: string,
+  password?: string,
+  expiryDays?: number
+): Promise<CreatePublicLinkResult> {
+  try {
+    const data = await apiCreatePublicLink(fileId, password, expiryDays);
+    if (data.error) return { success: false, error: data.error };
+    const link: PublicLink = {
+      token: data.token ?? '',
+      fileId: data.fileId ?? fileId,
+      filename: data.filename ?? '',
+      hasPassword: data.hasPassword ?? false,
+      downloadCount: data.downloadCount ?? 0,
+      createdAt: data.createdAt ?? '',
+      expiresAt: data.expiresAt ?? '',
+    };
+    return { success: true, link };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create public link';
+    return { success: false, error: message };
+  }
+}
+
+export interface FetchPublicLinksResult {
+  links: PublicLink[];
+  error?: string;
+}
+
+export async function fetchPublicLinks(fileId: string): Promise<FetchPublicLinksResult> {
+  try {
+    const data = await apiListPublicLinks(fileId);
+    const links: PublicLink[] = (data.links ?? []).map((l) => ({
+      token: l.token,
+      fileId: l.fileId,
+      filename: l.filename,
+      hasPassword: l.hasPassword,
+      downloadCount: l.downloadCount,
+      createdAt: l.createdAt,
+      expiresAt: l.expiresAt,
+    }));
+    return { links };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load public links';
+    return { links: [], error: message };
+  }
+}
+
+export interface DeletePublicLinkResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function deletePublicLinkResult(token: string): Promise<DeletePublicLinkResult> {
+  return wrapApiCall(() => apiDeletePublicLink(token), 'Failed to delete public link');
+}
+
+export interface UpdatePublicLinkResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function updatePublicLinkResult(
+  token: string,
+  options: { password?: string; removePassword?: boolean; expiryDays?: number }
+): Promise<UpdatePublicLinkResult> {
+  return wrapApiCall(() => apiUpdatePublicLink(token, options), 'Failed to update public link');
+}
+
+// ---------------------------------------------------------------------------
+// Public download (unauthenticated – used by PublicDownloadPage)
+// ---------------------------------------------------------------------------
+
+export interface FetchPublicLinkInfoResult {
+  info?: PublicLinkInfo;
+  error?: string;
+}
+
+export async function fetchPublicLinkInfo(token: string): Promise<FetchPublicLinkInfoResult> {
+  try {
+    const data = await apiGetPublicLinkInfo(token);
+    if (data.error) return { error: data.error };
+    const info: PublicLinkInfo = {
+      filename: data.filename ?? '',
+      size: data.size ?? 0,
+      contentType: data.contentType ?? 'application/octet-stream',
+      hasPassword: data.hasPassword ?? false,
+      downloadCount: data.downloadCount ?? 0,
+      expiresAt: data.expiresAt ?? '',
+    };
+    return { info };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Link not found or expired';
+    return { error: message };
+  }
+}
+
+export interface PublicDownloadUrlResult {
+  downloadUrl?: string;
+  error?: string;
+}
+
+export async function getPublicDownloadUrl(
+  token: string,
+  password?: string
+): Promise<PublicDownloadUrlResult> {
+  try {
+    const data = await apiDownloadPublicLink(token, password);
+    if (data.error) return { error: data.error };
+    return { downloadUrl: data.downloadUrl };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Download failed';
+    return { error: message };
+  }
 }
 
 // ---------------------------------------------------------------------------

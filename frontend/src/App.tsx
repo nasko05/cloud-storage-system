@@ -59,6 +59,7 @@ import { ContextMenu } from './components/ContextMenu';
 import { RenameDialog } from './components/RenameDialog';
 import { MoveDialog } from './components/MoveDialog';
 import { ShareDialog } from './components/ShareDialog';
+import { PublicDownloadPage } from './components/PublicDownloadPage';
 import { AuthForm } from './components/AuthForm';
 import { useSelection } from './hooks/useSelection';
 import { useDriveActions } from './hooks/useDriveActions';
@@ -87,6 +88,12 @@ function readViewPrefs(): { viewMode: ViewMode; gridSize: GridSize } {
 }
 
 function App(): JSX.Element {
+  // --- Public link route: /s/{token} (no auth required) ---
+  const publicLinkMatch = window.location.pathname.match(/^\/s\/([a-f0-9-]+)$/i);
+  if (publicLinkMatch) {
+    return <PublicDownloadPage token={publicLinkMatch[1]} />;
+  }
+
   // --- Auth state ---
   const [token, setToken] = useState<string | null>(null);
 

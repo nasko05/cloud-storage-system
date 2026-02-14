@@ -64,8 +64,9 @@ def list_files(user_id, folder=None):
             and item['path'].replace(prefix_with_slash, '').count('/') == 0
         ]
 
-    # Enrich files with isShared flag by checking GSI1 for share records
+    # Enrich files with isShared / hasPublicLink flags via GSI1 queries
     shared_file_ids = set()
+    public_link_file_ids = set()
     for f in files:
         fid = f['fileId']
         try:
@@ -79,9 +80,21 @@ def list_files(user_id, folder=None):
                 shared_file_ids.add(fid)
         except Exception:
             pass
+        try:
+            pl_result = table.query(
+                IndexName='GSI1',
+                KeyConditionExpression=Key('gsi1pk').eq(file_gsi(fid)) & Key('gsi1sk').begins_with('PUBLIC_LINK#'),
+                Limit=1,
+                Select='COUNT'
+            )
+            if pl_result.get('Count', 0) > 0:
+                public_link_file_ids.add(fid)
+        except Exception:
+            pass
 
     for f in files:
         f['isShared'] = f['fileId'] in shared_file_ids
+        f['hasPublicLink'] = f['fileId'] in public_link_file_ids
 
     return response(200, {'files': files, 'folders': folders})
 

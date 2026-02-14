@@ -69,7 +69,51 @@ interface UnshareResult extends ApiResult {
   revokedUser?: string;
 }
 
+// --- Public link types (authenticated CRUD) ---
+
+interface CreatePublicLinkResult extends ApiResult {
+  token?: string;
+  fileId?: string;
+  filename?: string;
+  hasPassword?: boolean;
+  downloadCount?: number;
+  createdAt?: string;
+  expiresAt?: string;
+}
+
+interface ListPublicLinksResult extends ApiResult {
+  links?: Array<{
+    token: string;
+    fileId: string;
+    filename: string;
+    hasPassword: boolean;
+    downloadCount: number;
+    createdAt: string;
+    expiresAt: string;
+  }>;
+}
+
+// --- Public link types (unauthenticated access) ---
+
+interface PublicLinkInfoResult extends ApiResult {
+  filename?: string;
+  size?: number;
+  contentType?: string;
+  hasPassword?: boolean;
+  downloadCount?: number;
+  expiresAt?: string;
+}
+
+interface PublicDownloadResult extends ApiResult {
+  downloadUrl?: string;
+  filename?: string;
+  contentType?: string;
+  size?: number;
+  expiresIn?: number;
+}
+
 class DriveApiClient {
+  /** Authenticated API call (attaches JWT). */
   public static async call<T extends ApiResult>(endpoint: string, body: ApiBody): Promise<T> {
     const token = await getToken();
     const resp = await fetch(`${config.apiEndpoint}${endpoint}`, {
@@ -87,6 +131,35 @@ class DriveApiClient {
 
     if (!resp.ok) {
       // Try to extract an error message from the response body
+      let errorMessage: string;
+      try {
+        const errorBody = (await resp.json()) as { error?: string };
+        errorMessage = errorBody.error ?? `Request failed with status ${resp.status}`;
+      } catch {
+        errorMessage = `Request failed with status ${resp.status}`;
+      }
+      throw new Error(errorMessage);
+    }
+
+    return (await resp.json()) as T;
+  }
+
+  /** Unauthenticated API call (no JWT). */
+  public static async publicCall<T extends ApiResult>(
+    endpoint: string,
+    method: 'GET' | 'POST' = 'GET',
+    body?: ApiBody
+  ): Promise<T> {
+    const options: RequestInit = {
+      method,
+      headers: { 'Content-Type': 'application/json' },
+    };
+    if (body && method === 'POST') {
+      options.body = JSON.stringify(body);
+    }
+    const resp = await fetch(`${config.apiEndpoint}${endpoint}`, options);
+
+    if (!resp.ok) {
       let errorMessage: string;
       try {
         const errorBody = (await resp.json()) as { error?: string };
@@ -214,3 +287,52 @@ export const updateSharePermission = async (
     targetUserId,
     permission
   });
+
+// ---------------------------------------------------------------------------
+// Public link CRUD (authenticated)
+// ---------------------------------------------------------------------------
+
+export const createPublicLink = async (
+  fileId: string,
+  password?: string,
+  expiryDays?: number
+): Promise<CreatePublicLinkResult> =>
+  DriveApiClient.call<CreatePublicLinkResult>('/upload', {
+    action: 'create-public-link',
+    fileId,
+    ...(password ? { password } : {}),
+    ...(expiryDays !== undefined ? { expiryDays } : {}),
+  });
+
+export const listPublicLinks = async (fileId: string): Promise<ListPublicLinksResult> =>
+  DriveApiClient.call<ListPublicLinksResult>('/upload', { action: 'list-public-links', fileId });
+
+export const deletePublicLink = async (token: string): Promise<ApiResult> =>
+  DriveApiClient.call<ApiResult>('/upload', { action: 'delete-public-link', token });
+
+export const updatePublicLink = async (
+  token: string,
+  options: { password?: string; removePassword?: boolean; expiryDays?: number }
+): Promise<ApiResult> =>
+  DriveApiClient.call<ApiResult>('/upload', {
+    action: 'update-public-link',
+    token,
+    ...options,
+  });
+
+// ---------------------------------------------------------------------------
+// Public download (unauthenticated)
+// ---------------------------------------------------------------------------
+
+export const getPublicLinkInfo = async (token: string): Promise<PublicLinkInfoResult> =>
+  DriveApiClient.publicCall<PublicLinkInfoResult>(`/public/${encodeURIComponent(token)}`, 'GET');
+
+export const downloadPublicLink = async (
+  token: string,
+  password?: string
+): Promise<PublicDownloadResult> =>
+  DriveApiClient.publicCall<PublicDownloadResult>(
+    `/public/${encodeURIComponent(token)}`,
+    'POST',
+    password ? { password } : {}
+  );
