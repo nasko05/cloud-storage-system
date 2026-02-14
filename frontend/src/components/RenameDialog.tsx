@@ -7,13 +7,9 @@ import {
   DialogTitle,
   TextField
 } from '@mui/material';
-import type { DriveFile } from './File';
-import type { DriveFolder } from './Folder';
+import type { RenameTarget } from '../types/drive';
 
-export type RenameTarget =
-  | { type: 'file'; file: DriveFile }
-  | { type: 'folder'; folder: DriveFolder }
-  | null;
+export type { RenameTarget } from '../types/drive';
 
 export interface RenameDialogProps {
   target: RenameTarget;

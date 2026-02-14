@@ -3,9 +3,7 @@ import { Box, CircularProgress, Stack, Typography } from '@mui/material';
 import { DataGrid } from '@mui/x-data-grid';
 import type { GridColDef, GridRowSelectionModel } from '@mui/x-data-grid';
 import { DensitySelectorToolbar } from './DensitySelectorToolbar';
-import type { DriveFile } from './File';
-import type { DriveFolder } from './Folder';
-import type { DriveListRow } from './File';
+import type { DriveFile, DriveFolder, DriveListRow } from '../types/drive';
 
 export interface ListLayoutProps {
   /** Unified rows: folders and files in one list. */

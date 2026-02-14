@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Box, Skeleton } from '@mui/material';
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
+import { getCachedDownloadUrl } from '../service/thumbnailCache';
 
 export interface ImageThumbnailProps {
   fileId: string;
@@ -26,7 +27,9 @@ export function ImageThumbnail({
     let cancelled = false;
     setLoading(true);
     setError(false);
-    getDownloadUrl(fileId)
+    const fetcher = (id: string) =>
+      getDownloadUrl(id).then((u) => u ?? null);
+    getCachedDownloadUrl(fileId, fetcher)
       .then((downloadUrl) => {
         if (!cancelled && downloadUrl) setUrl(downloadUrl);
         else if (!cancelled) setError(true);

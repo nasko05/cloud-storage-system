@@ -36,16 +36,18 @@ mkdir -p "$BUILD_DIR"
 
 echo "Packaging Upload Lambda..."
 cd lambdas/upload
+SHARED_FILES=$(ls ../shared/*.py | xargs -n1 basename)
 cp ../shared/*.py .
 zip -rq "../../$BUILD_DIR/upload-lambda.zip" *.py
-rm -f common.py
+for f in $SHARED_FILES; do rm -f "$f"; done
 cd ../..
 
 echo "Packaging Download Lambda..."
 cd lambdas/download
+SHARED_FILES=$(ls ../shared/*.py | xargs -n1 basename)
 cp ../shared/*.py .
 zip -rq "../../$BUILD_DIR/download-lambda.zip" *.py
-rm -f common.py
+for f in $SHARED_FILES; do rm -f "$f"; done
 cd ../..
 
 ARTIFACT_BUCKET="${ENV_NAME}-cloudstorage-artifacts-${ACCOUNT_ID}-${REGION}"

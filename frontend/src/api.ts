@@ -32,7 +32,7 @@ interface CreateFolderResult extends ApiResult {
 class DriveApiClient {
   public static async call<T extends ApiResult>(endpoint: string, body: ApiBody): Promise<T> {
     const token = await getToken();
-    const response = await fetch(`${config.apiEndpoint}${endpoint}`, {
+    const resp = await fetch(`${config.apiEndpoint}${endpoint}`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
@@ -41,7 +41,23 @@ class DriveApiClient {
       body: JSON.stringify(body)
     });
 
-    return (await response.json()) as T;
+    if (resp.status === 401) {
+      throw new Error('Session expired. Please log in again.');
+    }
+
+    if (!resp.ok) {
+      // Try to extract an error message from the response body
+      let errorMessage: string;
+      try {
+        const errorBody = (await resp.json()) as { error?: string };
+        errorMessage = errorBody.error ?? `Request failed with status ${resp.status}`;
+      } catch {
+        errorMessage = `Request failed with status ${resp.status}`;
+      }
+      throw new Error(errorMessage);
+    }
+
+    return (await resp.json()) as T;
   }
 }
 

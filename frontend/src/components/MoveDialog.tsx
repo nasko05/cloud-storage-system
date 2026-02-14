@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Box,
   Breadcrumbs,
@@ -18,35 +18,16 @@ import {
 } from '@mui/material';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import { listFiles } from '../api';
-import type { DriveFolder } from './Folder';
+import type { DriveFolder, MoveItem } from '../types/drive';
+import { parseFolder } from '../service/driveService';
 
-export interface MoveItem {
-  type: 'file' | 'folder';
-  id: string;
-  /** For folders, the full path; for files, the fileId. */
-  path?: string;
-  name: string;
-}
+export type { MoveItem } from '../types/drive';
 
 export interface MoveDialogProps {
   open: boolean;
   items: MoveItem[];
   onClose: () => void;
   onConfirm: (destinationPath: string) => void;
-}
-
-interface FolderEntry {
-  folderId: string;
-  name: string;
-  path: string;
-}
-
-function parseFolder(item: unknown): FolderEntry | null {
-  if (!item || typeof item !== 'object') return null;
-  const o = item as Record<string, unknown>;
-  if (typeof o.folderId !== 'string' || typeof o.name !== 'string' || typeof o.path !== 'string')
-    return null;
-  return { folderId: o.folderId, name: o.name, path: o.path };
 }
 
 export function MoveDialog({
@@ -56,12 +37,13 @@ export function MoveDialog({
   onConfirm
 }: MoveDialogProps): React.ReactElement {
   const [browsePath, setBrowsePath] = useState('/');
-  const [folders, setFolders] = useState<FolderEntry[]>([]);
+  const [folders, setFolders] = useState<DriveFolder[]>([]);
   const [loading, setLoading] = useState(false);
 
   // Set of folder paths being moved (to exclude from the tree)
-  const excludedPaths = new Set(
-    items.filter((i) => i.type === 'folder').map((i) => i.path ?? '')
+  const excludedPaths = useMemo(
+    () => new Set(items.filter((i) => i.type === 'folder').map((i) => i.path ?? '')),
+    [items]
   );
 
   const loadFolders = useCallback(async (path: string) => {
@@ -69,7 +51,7 @@ export function MoveDialog({
     try {
       const result = await listFiles(path === '/' ? undefined : path);
       const parsed = Array.isArray(result.folders)
-        ? result.folders.map(parseFolder).filter((f): f is FolderEntry => f !== null)
+        ? result.folders.map(parseFolder).filter((f): f is DriveFolder => f !== null)
         : [];
       setFolders(parsed);
     } catch {
@@ -93,15 +75,16 @@ export function MoveDialog({
   // Build breadcrumb segments from browsePath
   const segments = browsePath === '/' ? [] : browsePath.split('/').filter(Boolean);
 
-  const excludedArr = Array.from(excludedPaths);
-  const visibleFolders = folders.filter((f) => {
-    // Exclude the folders being moved (and their children)
-    for (let i = 0; i < excludedArr.length; i += 1) {
-      const ep = excludedArr[i];
-      if (ep && (f.path === ep || f.path.startsWith(ep + '/'))) return false;
-    }
-    return true;
-  });
+  const visibleFolders = useMemo(() => {
+    const excludedArr = Array.from(excludedPaths);
+    return folders.filter((f) => {
+      for (let i = 0; i < excludedArr.length; i += 1) {
+        const ep = excludedArr[i];
+        if (ep && (f.path === ep || f.path.startsWith(ep + '/'))) return false;
+      }
+      return true;
+    });
+  }, [folders, excludedPaths]);
 
   const label =
     items.length === 1

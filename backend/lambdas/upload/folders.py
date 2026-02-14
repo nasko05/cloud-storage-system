@@ -1,81 +1,11 @@
-import json
 import time
 import random
 import string
-from datetime import datetime, timezone
 from botocore.exceptions import ClientError
 from boto3.dynamodb.conditions import Key
-from common import table, response
-
-def _debug_log(message, data, hypothesis_id):
-    """Log to stdout for CloudWatch (backend runs in AWS Lambda)."""
-    payload = {
-        'timestamp': int(time.time() * 1000),
-        'location': 'folders.py:create_folder',
-        'message': message,
-        'data': data,
-        'hypothesisId': hypothesis_id
-    }
-    print(json.dumps(payload))
-
-# Path validation limits
-MAX_PATH_LENGTH = 2048
-MAX_SEGMENT_LENGTH = 255
-MAX_DEPTH = 128
-
-
-def _normalize_path(path):
-    """Normalize path to a single leading slash, no trailing slash (except root)."""
-    if not path or not str(path).strip():
-        return '/'
-    parts = [p for p in str(path).strip().split('/') if p and p != '.' and p != '..']
-    if not parts:
-        return '/'
-    return '/' + '/'.join(parts)
-
-
-def _validate_path_segment(segment, field_name='path'):
-    """Validate a single path segment (no slashes). Returns (True, None) or (False, error_response)."""
-    if not segment or not segment.strip():
-        return False, response(400, {'error': f'{field_name} segment cannot be empty'})
-    s = segment.strip()
-    if len(s) > MAX_SEGMENT_LENGTH:
-        return False, response(400, {'error': f'{field_name} segment too long (max {MAX_SEGMENT_LENGTH})'})
-    if '\x00' in s:
-        return False, response(400, {'error': f'{field_name} contains invalid characters'})
-    return True, None
-
-
-def _validate_path(path, allow_root=True):
-    """
-    Validate a full path. Returns (normalized_path, None) or (None, error_response).
-    Rejects '..', empty segments, and enforces length/depth limits.
-    """
-    if path is None:
-        return ('/', None) if allow_root else (None, response(400, {'error': 'path required'}))
-    raw = str(path).strip()
-    if not raw:
-        return ('/', None) if allow_root else (None, response(400, {'error': 'path required'}))
-
-    if '..' in raw:
-        return None, response(400, {'error': 'path must not contain ..'})
-    if raw.startswith('//') or '//' in raw:
-        return None, response(400, {'error': 'path must not contain empty segments'})
-
-    normalized = _normalize_path(path)
-    if len(normalized) > MAX_PATH_LENGTH:
-        return None, response(400, {'error': f'path too long (max {MAX_PATH_LENGTH})'})
-
-    parts = [p for p in normalized.split('/') if p]
-    if len(parts) > MAX_DEPTH:
-        return None, response(400, {'error': f'path too deep (max {MAX_DEPTH} levels)'})
-
-    for part in parts:
-        ok, err = _validate_path_segment(part, 'path')
-        if not ok:
-            return None, err
-
-    return normalized, None
+from common import table, response, utc_now_iso
+from path_utils import validate_path, validate_path_segment, MAX_PATH_LENGTH
+from db_helpers import user_pk, folder_sk, folder_gsi, get_folder_or_404, file_sk_prefix, folder_sk_prefix
 
 
 def create_folder(user_id, folder_name, parent_path=None):
@@ -86,14 +16,14 @@ def create_folder(user_id, folder_name, parent_path=None):
     if not name:
         return response(400, {'error': 'folderName required'})
 
-    ok, err = _validate_path_segment(name, 'folderName')
+    ok, err = validate_path_segment(name, 'folderName')
     if not ok:
         return err
     if '/' in name:
         return response(400, {'error': 'folderName must not contain /'})
 
     # Validate and normalize parent path
-    parent, err = _validate_path(parent_path, allow_root=True)
+    parent, err = validate_path(parent_path, allow_root=True)
     if err is not None:
         return err
 
@@ -101,41 +31,22 @@ def create_folder(user_id, folder_name, parent_path=None):
     if len(full_path) > MAX_PATH_LENGTH:
         return response(400, {'error': f'path too long (max {MAX_PATH_LENGTH})'})
 
-    sk_folder = f'FOLDER#{full_path}'
-
-    # #region agent log
-    _debug_log('create_folder computed path', {
-        'folder_name_raw': folder_name,
-        'parent_path_raw': parent_path,
-        'parent_normalized': parent,
-        'name': name,
-        'full_path': full_path,
-        'sk_folder': sk_folder
-    }, 'A')
-    _debug_log('before get_item existing check', {'sk_folder': sk_folder}, 'D')
-    # #endregion
+    sk_folder = folder_sk(full_path)
 
     # For nested folders, ensure parent folder exists
     if parent != '/':
-        try:
-            parent_sk = f'FOLDER#{parent}'
-            parent_item = table.get_item(
-                Key={'pk': f'USER#{user_id}', 'sk': parent_sk}
-            )
-            if not parent_item.get('Item'):
-                return response(404, {'error': 'Parent folder not found', 'path': parent})
-        except Exception as e:
-            print(f'get_item parent failed: {e}')
-            return response(500, {'error': 'Internal server error'})
+        _parent_item, parent_err = get_folder_or_404(user_id, parent)
+        if parent_err:
+            return response(404, {'error': 'Parent folder not found', 'path': parent})
 
     folder_id = f'{int(time.time() * 1000)}-{"".join(random.choices(string.ascii_lowercase + string.digits, k=8))}'
-    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    now = utc_now_iso()
 
     folder_item = {
-        'pk': f'USER#{user_id}',
+        'pk': user_pk(user_id),
         'sk': sk_folder,
-        'gsi1pk': f'FOLDER#{folder_id}',
-        'gsi1sk': f'FOLDER#{folder_id}',
+        'gsi1pk': folder_gsi(folder_id),
+        'gsi1sk': folder_gsi(folder_id),
         'folderId': folder_id,
         'name': name,
         'path': full_path,
@@ -154,13 +65,6 @@ def create_folder(user_id, folder_name, parent_path=None):
         )
     except ClientError as e:
         if e.response.get('Error', {}).get('Code') == 'ConditionalCheckFailedException':
-            # #region agent log
-            _debug_log('put_item conditional check failed (folder already exists)', {
-                'sk_folder': sk_folder,
-                'full_path': full_path,
-                'runId': 'post-fix'
-            }, 'B')
-            # #endregion
             return response(409, {'error': 'Folder already exists', 'path': full_path})
         raise
 
@@ -174,43 +78,35 @@ def create_folder(user_id, folder_name, parent_path=None):
 
 def delete_folder(user_id, path):
     """Delete a folder. Fails if path is root or folder is not empty (has files or subfolders)."""
-    normalized, err = _validate_path(path, allow_root=False)
+    normalized, err = validate_path(path, allow_root=False)
     if err is not None:
         return err
 
-    sk_folder = f'FOLDER#{normalized}'
-    pk = f'USER#{user_id}'
+    pk = user_pk(user_id)
 
-    try:
-        folder_item = table.get_item(Key={'pk': pk, 'sk': sk_folder}).get('Item')
-    except Exception as e:
-        print(f'get_item folder failed: {e}')
-        return response(500, {'error': 'Internal server error'})
-
-    if not folder_item or folder_item.get('itemType') != 'FOLDER':
+    folder_item, folder_err = get_folder_or_404(user_id, normalized)
+    if folder_err:
         return response(404, {'error': 'Folder not found', 'path': normalized})
 
     # Reject if folder contains files
-    file_prefix = f'FILE#{normalized}/'
     file_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(file_prefix),
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(file_sk_prefix(normalized)),
         Limit=1
     )
     if file_result.get('Items'):
         return response(400, {'error': 'Folder is not empty (contains files)', 'path': normalized})
 
     # Reject if folder contains subfolders
-    folder_prefix = f'FOLDER#{normalized}/'
     subfolder_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(folder_prefix),
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(folder_sk_prefix(normalized)),
         Limit=1
     )
     if subfolder_result.get('Items'):
         return response(400, {'error': 'Folder is not empty (contains subfolders)', 'path': normalized})
 
     try:
-        table.delete_item(Key={'pk': pk, 'sk': sk_folder})
-    except Exception as e:
+        table.delete_item(Key={'pk': pk, 'sk': folder_sk(normalized)})
+    except ClientError as e:
         print(f'delete_item folder failed: {e}')
         return response(500, {'error': 'Internal server error'})
 
@@ -219,18 +115,18 @@ def delete_folder(user_id, path):
 
 def _collect_nested_items(user_id, folder_path):
     """Return all DynamoDB items nested under folder_path (folders + files)."""
-    pk = f'USER#{user_id}'
+    pk = user_pk(user_id)
     all_items = []
 
     # Subfolders (includes the folder itself via exact match, plus children via prefix)
     folder_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(f'FOLDER#{folder_path}')
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(folder_sk(folder_path))
     )
     all_items.extend(folder_result.get('Items', []))
 
     # Files inside this folder and all subfolders
     file_result = table.query(
-        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(f'FILE#{folder_path}/')
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(file_sk_prefix(folder_path))
     )
     all_items.extend(file_result.get('Items', []))
 
@@ -268,19 +164,19 @@ def _rekey_items(items, old_path_prefix, new_path_prefix, now):
 
 def move_folder(user_id, folder_path, destination_path):
     """Move a folder (and all nested contents) to a new parent location."""
-    source, err = _validate_path(folder_path, allow_root=False)
+    source, err = validate_path(folder_path, allow_root=False)
     if err is not None:
         return err
 
-    dest, err = _validate_path(destination_path, allow_root=True)
+    dest, err = validate_path(destination_path, allow_root=True)
     if err is not None:
         return err
 
-    pk = f'USER#{user_id}'
+    pk = user_pk(user_id)
 
     # Verify source folder exists
-    source_item = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{source}'}).get('Item')
-    if not source_item or source_item.get('itemType') != 'FOLDER':
+    source_item, source_err = get_folder_or_404(user_id, source)
+    if source_err:
         return response(404, {'error': 'Source folder not found', 'path': source})
 
     if source_item.get('ownerId') != user_id:
@@ -288,8 +184,8 @@ def move_folder(user_id, folder_path, destination_path):
 
     # Verify destination exists (unless root)
     if dest != '/':
-        dest_item = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{dest}'}).get('Item')
-        if not dest_item:
+        _dest_item, dest_err = get_folder_or_404(user_id, dest)
+        if dest_err:
             return response(404, {'error': 'Destination folder not found', 'path': dest})
 
     # Prevent circular move: destination must not be inside source
@@ -303,11 +199,11 @@ def move_folder(user_id, folder_path, destination_path):
         return response(200, {'message': 'Folder already in destination', 'oldPath': source, 'newPath': new_path})
 
     # Check destination doesn't already have a folder with same name
-    existing = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{new_path}'}).get('Item')
+    existing = table.get_item(Key={'pk': pk, 'sk': folder_sk(new_path)}).get('Item')
     if existing:
         return response(409, {'error': 'A folder with that name already exists in the destination', 'path': new_path})
 
-    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    now = utc_now_iso()
 
     # Collect all nested items
     all_items = _collect_nested_items(user_id, source)
@@ -321,7 +217,7 @@ def move_folder(user_id, folder_path, destination_path):
         with table.batch_writer() as batch:
             for item in new_items:
                 batch.put_item(Item=item)
-    except Exception as e:
+    except ClientError as e:
         print(f'move_folder batch failed: {e}')
         return response(500, {'error': 'Internal server error'})
 
@@ -330,7 +226,7 @@ def move_folder(user_id, folder_path, destination_path):
 
 def rename_folder(user_id, folder_path, new_name):
     """Rename a folder by replacing its last path segment. Updates all nested items."""
-    source, err = _validate_path(folder_path, allow_root=False)
+    source, err = validate_path(folder_path, allow_root=False)
     if err is not None:
         return err
 
@@ -338,17 +234,17 @@ def rename_folder(user_id, folder_path, new_name):
         return response(400, {'error': 'newName required'})
 
     name = str(new_name).strip()
-    ok, err = _validate_path_segment(name, 'newName')
+    ok, err = validate_path_segment(name, 'newName')
     if not ok:
         return err
     if '/' in name:
         return response(400, {'error': 'newName must not contain /'})
 
-    pk = f'USER#{user_id}'
+    pk = user_pk(user_id)
 
     # Verify source exists
-    source_item = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{source}'}).get('Item')
-    if not source_item or source_item.get('itemType') != 'FOLDER':
+    source_item, source_err = get_folder_or_404(user_id, source)
+    if source_err:
         return response(404, {'error': 'Folder not found', 'path': source})
 
     if source_item.get('ownerId') != user_id:
@@ -362,11 +258,11 @@ def rename_folder(user_id, folder_path, new_name):
         return response(200, {'message': 'Name unchanged', 'oldPath': source, 'newPath': new_path})
 
     # Check no conflict at destination
-    existing = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{new_path}'}).get('Item')
+    existing = table.get_item(Key={'pk': pk, 'sk': folder_sk(new_path)}).get('Item')
     if existing:
         return response(409, {'error': 'A folder with that name already exists', 'path': new_path})
 
-    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+    now = utc_now_iso()
 
     all_items = _collect_nested_items(user_id, source)
     new_items = _rekey_items(all_items, source, new_path, now)
@@ -378,7 +274,7 @@ def rename_folder(user_id, folder_path, new_name):
         with table.batch_writer() as batch:
             for item in new_items:
                 batch.put_item(Item=item)
-    except Exception as e:
+    except ClientError as e:
         print(f'rename_folder batch failed: {e}')
         return response(500, {'error': 'Internal server error'})
 

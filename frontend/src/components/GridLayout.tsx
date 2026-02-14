@@ -11,9 +11,9 @@ import {
   Typography
 } from '@mui/material';
 import { FileActions } from './File';
-import type { DriveFile } from './File';
+import type { DriveFile, DriveFolder } from '../types/drive';
+import { formatFileSize } from '../types/drive';
 import { FolderIcon } from './Folder';
-import type { DriveFolder } from './Folder';
 import { DynamicRenderedIcon } from './DynamicRenderedIcon';
 import { ImageThumbnail } from './ImageThumbnail';
 import { isImageFilename } from '../service/fileUtils';
@@ -337,7 +337,7 @@ export function GridLayout({
               {file.filename}
             </Typography>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
-              {file.formattedSize}
+              {formatFileSize(file.size)}
             </Typography>
           </CardActionArea>
           <Stack
