@@ -215,3 +215,171 @@ def delete_folder(user_id, path):
         return response(500, {'error': 'Internal server error'})
 
     return response(200, {'message': 'Folder deleted', 'path': normalized})
+
+
+def _collect_nested_items(user_id, folder_path):
+    """Return all DynamoDB items nested under folder_path (folders + files)."""
+    pk = f'USER#{user_id}'
+    all_items = []
+
+    # Subfolders (includes the folder itself via exact match, plus children via prefix)
+    folder_result = table.query(
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(f'FOLDER#{folder_path}')
+    )
+    all_items.extend(folder_result.get('Items', []))
+
+    # Files inside this folder and all subfolders
+    file_result = table.query(
+        KeyConditionExpression=Key('pk').eq(pk) & Key('sk').begins_with(f'FILE#{folder_path}/')
+    )
+    all_items.extend(file_result.get('Items', []))
+
+    return all_items
+
+
+def _rekey_items(items, old_path_prefix, new_path_prefix, now):
+    """Create copies of items with path prefixes swapped. Returns list of new items."""
+    new_items = []
+    for item in items:
+        new_item = dict(item)
+        sk = item['sk']
+        item_type = item.get('itemType')
+
+        # Replace old path prefix with new one in sk
+        if item_type == 'FOLDER':
+            old_sk_prefix = f'FOLDER#{old_path_prefix}'
+            new_sk_prefix = f'FOLDER#{new_path_prefix}'
+            new_item['sk'] = sk.replace(old_sk_prefix, new_sk_prefix, 1)
+            new_item['path'] = item['path'].replace(old_path_prefix, new_path_prefix, 1)
+            # Update name only for the moved folder itself (top level)
+            if item['path'] == old_path_prefix:
+                new_item['name'] = new_path_prefix.rsplit('/', 1)[-1]
+        elif item_type == 'FILE':
+            old_sk_prefix = f'FILE#{old_path_prefix}/'
+            new_sk_prefix = f'FILE#{new_path_prefix}/'
+            new_item['sk'] = sk.replace(old_sk_prefix, new_sk_prefix, 1)
+            new_item['path'] = item['path'].replace(old_path_prefix, new_path_prefix, 1)
+
+        new_item['updatedAt'] = now
+        new_items.append(new_item)
+
+    return new_items
+
+
+def move_folder(user_id, folder_path, destination_path):
+    """Move a folder (and all nested contents) to a new parent location."""
+    source, err = _validate_path(folder_path, allow_root=False)
+    if err is not None:
+        return err
+
+    dest, err = _validate_path(destination_path, allow_root=True)
+    if err is not None:
+        return err
+
+    pk = f'USER#{user_id}'
+
+    # Verify source folder exists
+    source_item = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{source}'}).get('Item')
+    if not source_item or source_item.get('itemType') != 'FOLDER':
+        return response(404, {'error': 'Source folder not found', 'path': source})
+
+    if source_item.get('ownerId') != user_id:
+        return response(403, {'error': 'Access denied'})
+
+    # Verify destination exists (unless root)
+    if dest != '/':
+        dest_item = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{dest}'}).get('Item')
+        if not dest_item:
+            return response(404, {'error': 'Destination folder not found', 'path': dest})
+
+    # Prevent circular move: destination must not be inside source
+    if dest == source or dest.startswith(f'{source}/'):
+        return response(400, {'error': 'Cannot move a folder into itself or its subfolder'})
+
+    folder_name = source.rsplit('/', 1)[-1]
+    new_path = f'/{folder_name}' if dest == '/' else f'{dest}/{folder_name}'
+
+    if source == new_path:
+        return response(200, {'message': 'Folder already in destination', 'oldPath': source, 'newPath': new_path})
+
+    # Check destination doesn't already have a folder with same name
+    existing = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{new_path}'}).get('Item')
+    if existing:
+        return response(409, {'error': 'A folder with that name already exists in the destination', 'path': new_path})
+
+    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    # Collect all nested items
+    all_items = _collect_nested_items(user_id, source)
+    new_items = _rekey_items(all_items, source, new_path, now)
+
+    try:
+        # Delete old items, write new items
+        with table.batch_writer() as batch:
+            for item in all_items:
+                batch.delete_item(Key={'pk': item['pk'], 'sk': item['sk']})
+        with table.batch_writer() as batch:
+            for item in new_items:
+                batch.put_item(Item=item)
+    except Exception as e:
+        print(f'move_folder batch failed: {e}')
+        return response(500, {'error': 'Internal server error'})
+
+    return response(200, {'message': 'Folder moved', 'oldPath': source, 'newPath': new_path})
+
+
+def rename_folder(user_id, folder_path, new_name):
+    """Rename a folder by replacing its last path segment. Updates all nested items."""
+    source, err = _validate_path(folder_path, allow_root=False)
+    if err is not None:
+        return err
+
+    if not new_name or not str(new_name).strip():
+        return response(400, {'error': 'newName required'})
+
+    name = str(new_name).strip()
+    ok, err = _validate_path_segment(name, 'newName')
+    if not ok:
+        return err
+    if '/' in name:
+        return response(400, {'error': 'newName must not contain /'})
+
+    pk = f'USER#{user_id}'
+
+    # Verify source exists
+    source_item = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{source}'}).get('Item')
+    if not source_item or source_item.get('itemType') != 'FOLDER':
+        return response(404, {'error': 'Folder not found', 'path': source})
+
+    if source_item.get('ownerId') != user_id:
+        return response(403, {'error': 'Access denied'})
+
+    # Compute new path: replace the last segment
+    parent = source.rsplit('/', 1)[0] or '/'
+    new_path = f'/{name}' if parent == '/' else f'{parent}/{name}'
+
+    if source == new_path:
+        return response(200, {'message': 'Name unchanged', 'oldPath': source, 'newPath': new_path})
+
+    # Check no conflict at destination
+    existing = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{new_path}'}).get('Item')
+    if existing:
+        return response(409, {'error': 'A folder with that name already exists', 'path': new_path})
+
+    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    all_items = _collect_nested_items(user_id, source)
+    new_items = _rekey_items(all_items, source, new_path, now)
+
+    try:
+        with table.batch_writer() as batch:
+            for item in all_items:
+                batch.delete_item(Key={'pk': item['pk'], 'sk': item['sk']})
+        with table.batch_writer() as batch:
+            for item in new_items:
+                batch.put_item(Item=item)
+    except Exception as e:
+        print(f'rename_folder batch failed: {e}')
+        return response(500, {'error': 'Internal server error'})
+
+    return response(200, {'message': 'Folder renamed', 'oldPath': source, 'newPath': new_path})

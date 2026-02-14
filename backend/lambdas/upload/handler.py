@@ -1,7 +1,7 @@
 import json
 from common import response
-from files import list_files, upload_file, delete_file
-from folders import create_folder, delete_folder
+from files import list_files, upload_file, delete_file, move_file, rename_file
+from folders import create_folder, delete_folder, move_folder, rename_folder
 from sharing import list_shared_with_me, share_file, unshare_file
 
 # Action handlers registry
@@ -14,6 +14,26 @@ ACTIONS = {
         ctx['body'].get('path')
     ),
     'delete-folder': lambda ctx: delete_folder(ctx['user_id'], ctx['body'].get('path')),
+    'move-file': lambda ctx: move_file(
+        ctx['user_id'],
+        ctx['body'].get('fileId'),
+        ctx['body'].get('destinationPath')
+    ),
+    'rename-file': lambda ctx: rename_file(
+        ctx['user_id'],
+        ctx['body'].get('fileId'),
+        ctx['body'].get('newName')
+    ),
+    'move-folder': lambda ctx: move_folder(
+        ctx['user_id'],
+        ctx['body'].get('folderPath'),
+        ctx['body'].get('destinationPath')
+    ),
+    'rename-folder': lambda ctx: rename_folder(
+        ctx['user_id'],
+        ctx['body'].get('folderPath'),
+        ctx['body'].get('newName')
+    ),
     'shared-with-me': lambda ctx: list_shared_with_me(ctx['user_id']),
     'share': lambda ctx: share_file(ctx['user_id'], ctx['user_email'], ctx['body']),
     'unshare': lambda ctx: unshare_file(ctx['user_id'], ctx['body']),

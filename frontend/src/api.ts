@@ -111,3 +111,15 @@ export const getDownloadUrl = async (fileId: string): Promise<DownloadUrlResult>
 
 export const deleteFile = async (fileId: string): Promise<ApiResult> =>
   DriveApiClient.call<ApiResult>('/upload', { action: 'delete', fileId });
+
+export const moveFile = async (fileId: string, destinationPath: string): Promise<ApiResult> =>
+  DriveApiClient.call<ApiResult>('/upload', { action: 'move-file', fileId, destinationPath });
+
+export const renameFile = async (fileId: string, newName: string): Promise<ApiResult> =>
+  DriveApiClient.call<ApiResult>('/upload', { action: 'rename-file', fileId, newName });
+
+export const moveFolder = async (folderPath: string, destinationPath: string): Promise<ApiResult> =>
+  DriveApiClient.call<ApiResult>('/upload', { action: 'move-folder', folderPath, destinationPath });
+
+export const renameFolder = async (folderPath: string, newName: string): Promise<ApiResult> =>
+  DriveApiClient.call<ApiResult>('/upload', { action: 'rename-folder', folderPath, newName });

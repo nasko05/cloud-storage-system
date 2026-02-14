@@ -1,13 +1,13 @@
-import React from 'react';
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import React, { useState } from 'react';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUncheckedRounded';
 import {
   Box,
   Card,
   CardActionArea,
+  Checkbox,
   CircularProgress,
-  IconButton,
   Stack,
-  Tooltip,
   Typography
 } from '@mui/material';
 import { FileActions } from './File';
@@ -33,10 +33,20 @@ export interface GridLayoutProps {
   files: DriveFile[];
   folders?: DriveFolder[];
   loading?: boolean;
+  selectedItems?: Set<string>;
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
   onFolderClick?: (folder: DriveFolder) => void;
   onDeleteFolder?: (folder: DriveFolder) => void;
+  onContextMenu?: (
+    e: React.MouseEvent,
+    target: { type: 'file'; file: DriveFile } | { type: 'folder'; folder: DriveFolder }
+  ) => void;
+  onSelectionChange?: (id: string, multi: boolean) => void;
+  onDrop?: (
+    targetFolder: DriveFolder,
+    dragData: { type: 'file' | 'folder'; id: string }
+  ) => void;
   /** Required for image thumbnails; if provided, image files will show a preview. */
   getDownloadUrl?: (fileId: string) => Promise<string | undefined | null>;
   /** Card size in the grid. */
@@ -47,14 +57,19 @@ export function GridLayout({
   files,
   folders = [],
   loading = false,
+  selectedItems,
   onDownload,
   onDelete,
   onFolderClick,
   onDeleteFolder,
+  onContextMenu,
+  onSelectionChange,
+  onDrop,
   getDownloadUrl,
   gridSize = 'medium'
 }: GridLayoutProps): React.ReactElement {
   const config = GRID_SIZE_CONFIG[gridSize];
+  const [dragOverId, setDragOverId] = useState<string | null>(null);
 
   if (loading) {
     return (
@@ -79,6 +94,48 @@ export function GridLayout({
     'aria-hidden': true
   } as const;
 
+  const handleDragStart = (
+    e: React.DragEvent,
+    type: 'file' | 'folder',
+    id: string
+  ): void => {
+    e.dataTransfer.setData(
+      'application/x-drive-item',
+      JSON.stringify({ type, id })
+    );
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragOver = (e: React.DragEvent, folderId: string): void => {
+    e.preventDefault();
+    e.dataTransfer.dropEffect = 'move';
+    setDragOverId(folderId);
+  };
+
+  const handleDragLeave = (): void => {
+    setDragOverId(null);
+  };
+
+  const handleDropOnFolder = (
+    e: React.DragEvent,
+    folder: DriveFolder
+  ): void => {
+    e.preventDefault();
+    setDragOverId(null);
+    try {
+      const raw = e.dataTransfer.getData('application/x-drive-item');
+      if (!raw) return;
+      const data = JSON.parse(raw) as { type: 'file' | 'folder'; id: string };
+      // Don't drop a folder on itself
+      if (data.type === 'folder' && data.id === folder.folderId) return;
+      onDrop?.(folder, data);
+    } catch {
+      // ignore malformed drag data
+    }
+  };
+
+  const isSelected = (id: string): boolean => selectedItems?.has(id) ?? false;
+
   return (
     <Box
       sx={{
@@ -91,13 +148,52 @@ export function GridLayout({
         <Card
           key={folder.folderId}
           variant="outlined"
+          draggable
+          onDragStart={(e) => handleDragStart(e, 'folder', folder.folderId)}
+          onDragOver={(e) => handleDragOver(e, folder.folderId)}
+          onDragLeave={handleDragLeave}
+          onDrop={(e) => handleDropOnFolder(e, folder)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onContextMenu?.(e, { type: 'folder', folder });
+          }}
           sx={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 2
+            borderRadius: 2,
+            position: 'relative',
+            outline: dragOverId === folder.folderId ? '2px solid' : undefined,
+            outlineColor: dragOverId === folder.folderId ? 'primary.main' : undefined,
+            bgcolor: dragOverId === folder.folderId ? 'action.hover' : undefined,
+            ...(isSelected(folder.folderId) && {
+              borderColor: 'primary.main',
+              bgcolor: 'primary.50'
+            })
           }}
         >
+          {onSelectionChange && (
+            <Checkbox
+              checked={isSelected(folder.folderId)}
+              onChange={(e) =>
+                onSelectionChange(folder.folderId, e.nativeEvent instanceof MouseEvent && (e.nativeEvent.metaKey || e.nativeEvent.ctrlKey))
+              }
+              icon={<RadioButtonUncheckedRoundedIcon />}
+              checkedIcon={<CheckCircleRoundedIcon />}
+              size="small"
+              sx={{
+                position: 'absolute',
+                top: 4,
+                left: 4,
+                zIndex: 1,
+                opacity: isSelected(folder.folderId) ? 1 : 0,
+                transition: 'opacity 0.15s',
+                '&:hover, .MuiCard-root:hover &': { opacity: 1 }
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <CardActionArea
             onClick={() => onFolderClick?.(folder)}
             sx={{
@@ -147,36 +243,52 @@ export function GridLayout({
               </Typography>
             )}
           </CardActionArea>
-          <Stack
-            direction="row"
-            justifyContent="center"
-            spacing={0.5}
-            sx={{ py: 1, px: 1, borderTop: 1, borderColor: 'divider' }}
-          >
-            <Tooltip title="Delete folder">
-              <IconButton
-                size="small"
-                aria-label="Delete folder"
-                onClick={() => onDeleteFolder?.(folder)}
-                color="error"
-              >
-                <DeleteOutlineRoundedIcon fontSize="small" />
-              </IconButton>
-            </Tooltip>
-          </Stack>
         </Card>
       ))}
       {files.map((file) => (
         <Card
           key={file.fileId}
           variant="outlined"
+          draggable
+          onDragStart={(e) => handleDragStart(e, 'file', file.fileId)}
+          onContextMenu={(e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            onContextMenu?.(e, { type: 'file', file });
+          }}
           sx={{
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 2
+            borderRadius: 2,
+            position: 'relative',
+            ...(isSelected(file.fileId) && {
+              borderColor: 'primary.main',
+              bgcolor: 'primary.50'
+            })
           }}
         >
+          {onSelectionChange && (
+            <Checkbox
+              checked={isSelected(file.fileId)}
+              onChange={(e) =>
+                onSelectionChange(file.fileId, e.nativeEvent instanceof MouseEvent && (e.nativeEvent.metaKey || e.nativeEvent.ctrlKey))
+              }
+              icon={<RadioButtonUncheckedRoundedIcon />}
+              checkedIcon={<CheckCircleRoundedIcon />}
+              size="small"
+              sx={{
+                position: 'absolute',
+                top: 4,
+                left: 4,
+                zIndex: 1,
+                opacity: isSelected(file.fileId) ? 1 : 0,
+                transition: 'opacity 0.15s',
+                '&:hover, .MuiCard-root:hover &': { opacity: 1 }
+              }}
+              onClick={(e) => e.stopPropagation()}
+            />
+          )}
           <CardActionArea
             sx={{
               flex: 1,

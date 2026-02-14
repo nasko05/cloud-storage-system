@@ -1,4 +1,4 @@
-import React, { ChangeEvent, FormEvent, useEffect, useState } from 'react';
+import React, { ChangeEvent, FormEvent, useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   AppBar,
@@ -27,7 +27,15 @@ import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import { login, logout, getToken, register, confirmRegistration } from './auth';
 import { createFolder, deleteFolder, uploadFile } from './api';
-import { fetchFiles, getFileDownloadUrl, deleteFileResult } from './service/driveService';
+import {
+  fetchFiles,
+  getFileDownloadUrl,
+  deleteFileResult,
+  moveFileResult,
+  moveFolderResult,
+  renameFileResult,
+  renameFolderResult
+} from './service/driveService';
 import type { DriveFolder } from './components/Folder';
 import {
   DriveFile,
@@ -38,6 +46,9 @@ import {
 } from './components/File';
 import { GridLayout, type GridSize } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
+import { ContextMenu, type ContextMenuTarget, type ContextMenuPosition } from './components/ContextMenu';
+import { RenameDialog, type RenameTarget } from './components/RenameDialog';
+import { MoveDialog, type MoveItem } from './components/MoveDialog';
 import './App.css';
 
 type AuthMode = 'login' | 'register' | 'confirm';
@@ -63,22 +74,43 @@ function readViewPrefs(): { viewMode: ViewMode; gridSize: GridSize } {
 }
 
 function App(): JSX.Element {
+  // --- Auth state ---
   const [token, setToken] = useState<string | null>(null);
   const [email, setEmail] = useState<string>('');
   const [password, setPassword] = useState<string>('');
   const [confirmCode, setConfirmCode] = useState<string>('');
+  const [authMode, setAuthMode] = useState<AuthMode>('login');
+  const [pendingEmail, setPendingEmail] = useState<string>('');
+
+  // --- Drive state ---
   const [files, setFiles] = useState<DriveFile[]>([]);
   const [folders, setFolders] = useState<DriveFolder[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
   const [error, setError] = useState<string>('');
-  const [authMode, setAuthMode] = useState<AuthMode>('login');
-  const [pendingEmail, setPendingEmail] = useState<string>('');
   const [uploadProgress, setUploadProgress] = useState<string>('');
   const [viewMode, setViewMode] = useState<ViewMode>(() => readViewPrefs().viewMode);
   const [gridSize, setGridSize] = useState<GridSize>(() => readViewPrefs().gridSize);
   const [currentPath, setCurrentPath] = useState('');
   const [createFolderOpen, setCreateFolderOpen] = useState(false);
   const [newFolderName, setNewFolderName] = useState('');
+
+  // --- Selection state ---
+  const [selectedItems, setSelectedItems] = useState<Set<string>>(new Set());
+
+  // --- Context menu state ---
+  const [ctxTarget, setCtxTarget] = useState<ContextMenuTarget>(null);
+  const [ctxPosition, setCtxPosition] = useState<ContextMenuPosition | null>(null);
+
+  // --- Rename dialog state ---
+  const [renameTarget, setRenameTarget] = useState<RenameTarget>(null);
+
+  // --- Move dialog state ---
+  const [moveItems, setMoveItems] = useState<MoveItem[]>([]);
+  const [moveDialogOpen, setMoveDialogOpen] = useState(false);
+
+  // =========================================================================
+  // Bootstrap & effects
+  // =========================================================================
 
   useEffect(() => {
     const bootstrap = async (): Promise<void> => {
@@ -100,6 +132,15 @@ function App(): JSX.Element {
     localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify({ viewMode, gridSize }));
   }, [viewMode, gridSize]);
 
+  // Clear selection when navigating
+  useEffect(() => {
+    setSelectedItems(new Set());
+  }, [currentPath]);
+
+  // =========================================================================
+  // Core data helpers
+  // =========================================================================
+
   const loadFiles = async (): Promise<void> => {
     setLoading(true);
     setError('');
@@ -110,35 +151,9 @@ function App(): JSX.Element {
     setLoading(false);
   };
 
-  const handleCreateFolderOpen = (): void => {
-    setNewFolderName('');
-    setCreateFolderOpen(true);
-  };
-
-  const handleCreateFolderClose = (): void => {
-    setCreateFolderOpen(false);
-  };
-
-  const handleCreateFolderSubmit = async (): Promise<void> => {
-    const name = newFolderName.trim();
-    if (!name) {
-      setError('Folder name is required');
-      return;
-    }
-    setError('');
-    try {
-      const result = await createFolder(name, currentPath || undefined);
-      if (result.error) {
-        setError(result.error);
-        return;
-      }
-      handleCreateFolderClose();
-      await loadFiles();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : 'Failed to create folder';
-      setError(message);
-    }
-  };
+  // =========================================================================
+  // Auth handlers
+  // =========================================================================
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -188,6 +203,10 @@ function App(): JSX.Element {
     setFiles([]);
   };
 
+  // =========================================================================
+  // Upload
+  // =========================================================================
+
   const handleUpload = async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
     const selectedFiles = Array.from(event.target.files ?? []);
     if (selectedFiles.length === 0) {
@@ -223,6 +242,44 @@ function App(): JSX.Element {
     event.target.value = '';
   };
 
+  // =========================================================================
+  // Folder create
+  // =========================================================================
+
+  const handleCreateFolderOpen = (): void => {
+    setNewFolderName('');
+    setCreateFolderOpen(true);
+  };
+
+  const handleCreateFolderClose = (): void => {
+    setCreateFolderOpen(false);
+  };
+
+  const handleCreateFolderSubmit = async (): Promise<void> => {
+    const name = newFolderName.trim();
+    if (!name) {
+      setError('Folder name is required');
+      return;
+    }
+    setError('');
+    try {
+      const result = await createFolder(name, currentPath || undefined);
+      if (result.error) {
+        setError(result.error);
+        return;
+      }
+      handleCreateFolderClose();
+      await loadFiles();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : 'Failed to create folder';
+      setError(message);
+    }
+  };
+
+  // =========================================================================
+  // Download & Delete
+  // =========================================================================
+
   async function handleDownload(file: DriveFile): Promise<void> {
     const url = await getFileDownloadUrl(file.fileId);
     if (url) {
@@ -241,6 +298,11 @@ function App(): JSX.Element {
     const result = await deleteFileResult(file.fileId);
     if (result.success) {
       setFiles((current) => current.filter((entry) => entry.fileId !== file.fileId));
+      setSelectedItems((prev) => {
+        const next = new Set(prev);
+        next.delete(file.fileId);
+        return next;
+      });
     } else {
       setError(result.error ?? 'Delete failed');
     }
@@ -257,6 +319,11 @@ function App(): JSX.Element {
       const result = await deleteFolder(folder.path);
       if (!result.error) {
         setFolders((current) => current.filter((f) => f.folderId !== folder.folderId));
+        setSelectedItems((prev) => {
+          const next = new Set(prev);
+          next.delete(folder.folderId);
+          return next;
+        });
       } else {
         setError(result.error);
       }
@@ -265,6 +332,271 @@ function App(): JSX.Element {
     }
     setLoading(false);
   }
+
+  // =========================================================================
+  // Context menu
+  // =========================================================================
+
+  const handleContextMenu = useCallback(
+    (
+      e: React.MouseEvent,
+      target: { type: 'file'; file: DriveFile } | { type: 'folder'; folder: DriveFolder }
+    ) => {
+      // If the right-clicked item isn't in selection, select only it
+      const id = target.type === 'file' ? target.file.fileId : target.folder.folderId;
+      if (!selectedItems.has(id)) {
+        setSelectedItems(new Set([id]));
+      }
+      setCtxTarget(target);
+      setCtxPosition({ mouseX: e.clientX, mouseY: e.clientY });
+    },
+    [selectedItems]
+  );
+
+  const handleCtxClose = (): void => {
+    setCtxTarget(null);
+    setCtxPosition(null);
+  };
+
+  const handleCtxRename = (): void => {
+    if (!ctxTarget) return;
+    setRenameTarget(ctxTarget);
+  };
+
+  const handleCtxMoveTo = (): void => {
+    // Build MoveItem list from selected items (or context-clicked item)
+    const items: MoveItem[] = [];
+
+    if (selectedItems.size > 1) {
+      // Bulk move
+      Array.from(selectedItems).forEach((id) => {
+        const file = files.find((f) => f.fileId === id);
+        if (file) {
+          items.push({ type: 'file', id: file.fileId, name: file.filename });
+          return;
+        }
+        const folder = folders.find((f) => f.folderId === id);
+        if (folder) {
+          items.push({ type: 'folder', id: folder.folderId, path: folder.path, name: folder.name });
+        }
+      });
+    } else if (ctxTarget) {
+      if (ctxTarget.type === 'file') {
+        items.push({ type: 'file', id: ctxTarget.file.fileId, name: ctxTarget.file.filename });
+      } else {
+        items.push({
+          type: 'folder',
+          id: ctxTarget.folder.folderId,
+          path: ctxTarget.folder.path,
+          name: ctxTarget.folder.name
+        });
+      }
+    }
+
+    if (items.length > 0) {
+      setMoveItems(items);
+      setMoveDialogOpen(true);
+    }
+  };
+
+  const handleCtxDownload = (): void => {
+    if (ctxTarget?.type === 'file') {
+      void handleDownload(ctxTarget.file);
+    }
+  };
+
+  const handleCtxDelete = (): void => {
+    if (selectedItems.size > 1) {
+      // Bulk delete
+      if (!window.confirm(`Delete ${selectedItems.size} selected items?`)) return;
+      void handleBulkDelete();
+    } else if (ctxTarget?.type === 'file') {
+      void handleDelete(ctxTarget.file);
+    } else if (ctxTarget?.type === 'folder') {
+      void handleDeleteFolder(ctxTarget.folder);
+    }
+  };
+
+  async function handleBulkDelete(): Promise<void> {
+    setLoading(true);
+    setError('');
+    let failCount = 0;
+    const ids = Array.from(selectedItems);
+    for (let i = 0; i < ids.length; i += 1) {
+      const id = ids[i];
+      const file = files.find((f) => f.fileId === id);
+      if (file) {
+        const r = await deleteFileResult(file.fileId);
+        if (!r.success) failCount += 1;
+        continue;
+      }
+      const folder = folders.find((f) => f.folderId === id);
+      if (folder) {
+        try {
+          const r = await deleteFolder(folder.path);
+          if (r.error) failCount += 1;
+        } catch {
+          failCount += 1;
+        }
+      }
+    }
+    if (failCount > 0) {
+      setError(`${failCount} item(s) failed to delete`);
+    }
+    setSelectedItems(new Set());
+    await loadFiles();
+    setLoading(false);
+  }
+
+  // =========================================================================
+  // Rename
+  // =========================================================================
+
+  const handleRenameSubmit = async (newName: string): Promise<void> => {
+    if (!renameTarget) return;
+    setLoading(true);
+    setError('');
+
+    let result;
+    if (renameTarget.type === 'file') {
+      result = await renameFileResult(renameTarget.file.fileId, newName);
+    } else {
+      result = await renameFolderResult(renameTarget.folder.path, newName);
+    }
+
+    if (!result.success) {
+      setError(result.error ?? 'Rename failed');
+    }
+
+    setRenameTarget(null);
+    await loadFiles();
+    setLoading(false);
+  };
+
+  // =========================================================================
+  // Move
+  // =========================================================================
+
+  const handleMoveConfirm = async (destinationPath: string): Promise<void> => {
+    setMoveDialogOpen(false);
+    setLoading(true);
+    setError('');
+
+    let failCount = 0;
+    for (const item of moveItems) {
+      let result;
+      if (item.type === 'file') {
+        result = await moveFileResult(item.id, destinationPath);
+      } else {
+        result = await moveFolderResult(item.path ?? '', destinationPath);
+      }
+      if (!result.success) failCount += 1;
+    }
+
+    if (failCount > 0) {
+      setError(`${failCount} item(s) failed to move`);
+    }
+
+    setMoveItems([]);
+    setSelectedItems(new Set());
+    await loadFiles();
+    setLoading(false);
+  };
+
+  // =========================================================================
+  // Drag-and-drop
+  // =========================================================================
+
+  const handleDrop = useCallback(
+    async (
+      targetFolder: DriveFolder,
+      dragData: { type: 'file' | 'folder'; id: string }
+    ): Promise<void> => {
+      setLoading(true);
+      setError('');
+
+      // If multiple items are selected and the dragged item is among them, move all
+      const idsToMove: Array<{ type: 'file' | 'folder'; id: string; path?: string }> = [];
+      if (selectedItems.has(dragData.id) && selectedItems.size > 1) {
+        Array.from(selectedItems).forEach((id) => {
+          const file = files.find((f) => f.fileId === id);
+          if (file) {
+            idsToMove.push({ type: 'file', id });
+            return;
+          }
+          const folder = folders.find((f) => f.folderId === id);
+          if (folder) {
+            idsToMove.push({ type: 'folder', id, path: folder.path });
+          }
+        });
+      } else {
+        if (dragData.type === 'folder') {
+          const folder = folders.find((f) => f.folderId === dragData.id);
+          idsToMove.push({ type: 'folder', id: dragData.id, path: folder?.path });
+        } else {
+          idsToMove.push({ type: 'file', id: dragData.id });
+        }
+      }
+
+      let failCount = 0;
+      for (const item of idsToMove) {
+        let result;
+        if (item.type === 'file') {
+          result = await moveFileResult(item.id, targetFolder.path);
+        } else {
+          result = await moveFolderResult(item.path ?? '', targetFolder.path);
+        }
+        if (!result.success) failCount += 1;
+      }
+
+      if (failCount > 0) {
+        setError(`${failCount} item(s) failed to move`);
+      }
+
+      setSelectedItems(new Set());
+      await loadFiles();
+      setLoading(false);
+    },
+    [selectedItems, files, folders]
+  );
+
+  // =========================================================================
+  // Selection
+  // =========================================================================
+
+  const handleGridSelectionChange = useCallback(
+    (id: string, multi: boolean) => {
+      setSelectedItems((prev) => {
+        const next = new Set(prev);
+        if (multi) {
+          if (next.has(id)) {
+            next.delete(id);
+          } else {
+            next.add(id);
+          }
+        } else {
+          if (next.has(id) && next.size === 1) {
+            next.clear();
+          } else {
+            return new Set([id]);
+          }
+        }
+        return next;
+      });
+    },
+    []
+  );
+
+  const handleListSelectionChange = useCallback(
+    (ids: string[]) => {
+      setSelectedItems(new Set(ids));
+    },
+    []
+  );
+
+  // =========================================================================
+  // Computed values
+  // =========================================================================
 
   const rows: FileGridRow[] = files.map((file) => file.toGridRow());
   const columns = FileColumnsFactory.create({
@@ -302,6 +634,10 @@ function App(): JSX.Element {
       }),
     []
   );
+
+  // =========================================================================
+  // Render
+  // =========================================================================
 
   const authForm = (
     <Card sx={{ maxWidth: 460, mx: 'auto', mt: 12, borderRadius: 3 }}>
@@ -512,10 +848,14 @@ function App(): JSX.Element {
             files={files}
             folders={folders}
             loading={loading}
+            selectedItems={selectedItems}
             onDownload={handleDownload}
             onDelete={handleDelete}
             onFolderClick={(folder) => setCurrentPath(folder.path)}
             onDeleteFolder={handleDeleteFolder}
+            onContextMenu={handleContextMenu}
+            onSelectionChange={handleGridSelectionChange}
+            onDrop={handleDrop}
             getDownloadUrl={getFileDownloadUrl}
             gridSize={gridSize}
           />
@@ -524,10 +864,43 @@ function App(): JSX.Element {
             rows={listRows}
             columns={listColumns}
             loading={loading}
+            selectedItems={selectedItems}
             onFolderClick={(folder) => setCurrentPath(folder.path)}
+            onContextMenu={handleContextMenu}
+            onSelectionChange={handleListSelectionChange}
           />
         )}
       </Paper>
+
+      {/* Context menu */}
+      <ContextMenu
+        target={ctxTarget}
+        position={ctxPosition}
+        selectedCount={selectedItems.size}
+        onClose={handleCtxClose}
+        onRename={handleCtxRename}
+        onMoveTo={handleCtxMoveTo}
+        onDownload={handleCtxDownload}
+        onDelete={handleCtxDelete}
+      />
+
+      {/* Rename dialog */}
+      <RenameDialog
+        target={renameTarget}
+        onClose={() => setRenameTarget(null)}
+        onSubmit={handleRenameSubmit}
+      />
+
+      {/* Move dialog */}
+      <MoveDialog
+        open={moveDialogOpen}
+        items={moveItems}
+        onClose={() => {
+          setMoveDialogOpen(false);
+          setMoveItems([]);
+        }}
+        onConfirm={handleMoveConfirm}
+      />
     </Stack>
   );
 

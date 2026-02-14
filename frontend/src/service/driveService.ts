@@ -2,7 +2,16 @@
  * Drive business logic: file listing, download URLs, delete, and batch upload.
  * Uses api.ts for HTTP; no UI or React state.
  */
-import { deleteFile, getDownloadUrl, listFiles, uploadFile } from '../api';
+import {
+  deleteFile,
+  getDownloadUrl,
+  listFiles,
+  moveFile as apiMoveFile,
+  moveFolder as apiMoveFolder,
+  renameFile as apiRenameFile,
+  renameFolder as apiRenameFolder,
+  uploadFile
+} from '../api';
 import { DriveFile } from '../components/File';
 import type { DriveFolder } from '../components/Folder';
 
@@ -79,6 +88,55 @@ export async function deleteFileResult(fileId: string): Promise<DeleteFileResult
     return { success: true };
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Delete failed';
+    return { success: false, error: message };
+  }
+}
+
+export interface MoveResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function moveFileResult(fileId: string, destinationPath: string): Promise<MoveResult> {
+  try {
+    const result = await apiMoveFile(fileId, destinationPath);
+    if (result.error) return { success: false, error: result.error };
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Move failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function moveFolderResult(folderPath: string, destinationPath: string): Promise<MoveResult> {
+  try {
+    const result = await apiMoveFolder(folderPath, destinationPath);
+    if (result.error) return { success: false, error: result.error };
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Move failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function renameFileResult(fileId: string, newName: string): Promise<MoveResult> {
+  try {
+    const result = await apiRenameFile(fileId, newName);
+    if (result.error) return { success: false, error: result.error };
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Rename failed';
+    return { success: false, error: message };
+  }
+}
+
+export async function renameFolderResult(folderPath: string, newName: string): Promise<MoveResult> {
+  try {
+    const result = await apiRenameFolder(folderPath, newName);
+    if (result.error) return { success: false, error: result.error };
+    return { success: true };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Rename failed';
     return { success: false, error: message };
   }
 }
