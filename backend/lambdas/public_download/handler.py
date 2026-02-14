@@ -133,11 +133,12 @@ def _handle_post(event):
             return _response(404, {'error': 'File not found in storage'})
         raise
 
-    # Atomically increment download count
+    # Atomically increment download count (use placeholder: downloadCount contains reserved word "count")
     pk = f'PUBLIC_LINK#{token}'
     table.update_item(
         Key={'pk': pk, 'sk': 'META'},
-        UpdateExpression='ADD downloadCount :one',
+        UpdateExpression='ADD #dc :one',
+        ExpressionAttributeNames={'#dc': 'downloadCount'},
         ExpressionAttributeValues={':one': 1},
     )
 
