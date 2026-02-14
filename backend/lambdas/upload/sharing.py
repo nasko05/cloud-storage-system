@@ -120,3 +120,73 @@ def unshare_file(user_id, body):
 
     table.delete_item(Key={'pk': shared_pk(revoke_user_id), 'sk': f'FILE#{file_id}'})
     return response(200, {'message': 'Share revoked', 'fileId': file_id, 'revokedUser': revoke_user_id})
+
+
+def list_file_shares(user_id, body):
+    """List all active shares for a file owned by the caller."""
+    file_id = body.get('fileId')
+    if not file_id:
+        return response(400, {'error': 'fileId required'})
+
+    _file_item, _items, err = find_file_by_id(user_id, file_id)
+    if err:
+        return response(403, {'error': 'Access denied - not owner'})
+
+    # Query GSI1 to find all share records for this file
+    result = table.query(
+        IndexName='GSI1',
+        KeyConditionExpression=Key('gsi1pk').eq(file_gsi(file_id)) & Key('gsi1sk').begins_with('SHARED#')
+    )
+    items = [i for i in result.get('Items', []) if i.get('itemType') == 'SHARE']
+
+    now = int(time.time())
+    shares = []
+    for item in items:
+        # Skip expired shares
+        ttl = item.get('ttl')
+        if ttl and int(ttl) <= now:
+            continue
+        shares.append({
+            'sharedWith': item.get('sharedWith', ''),
+            'permission': item.get('permission', 'read'),
+            'sharedAt': item.get('sharedAt', ''),
+            'expiresAt': item.get('expiresAt', ''),
+        })
+
+    return response(200, {'shares': shares})
+
+
+def update_share_permission(user_id, body):
+    """Update the permission level of an existing share."""
+    file_id = body.get('fileId')
+    target_user_id = body.get('targetUserId')
+    permission = body.get('permission')
+
+    if not file_id or not target_user_id or not permission:
+        return response(400, {'error': 'fileId, targetUserId, and permission required'})
+
+    if permission not in ('read', 'download', 'edit'):
+        return response(400, {'error': 'permission must be read, download, or edit'})
+
+    _file_item, _items, err = find_file_by_id(user_id, file_id)
+    if err:
+        return response(403, {'error': 'Access denied - not owner'})
+
+    # Verify the share record exists
+    share_key = {'pk': shared_pk(target_user_id), 'sk': f'FILE#{file_id}'}
+    existing = table.get_item(Key=share_key).get('Item')
+    if not existing:
+        return response(404, {'error': 'Share not found'})
+
+    table.update_item(
+        Key=share_key,
+        UpdateExpression='SET permission = :p',
+        ExpressionAttributeValues={':p': permission}
+    )
+
+    return response(200, {
+        'message': 'Permission updated',
+        'fileId': file_id,
+        'targetUserId': target_user_id,
+        'permission': permission
+    })

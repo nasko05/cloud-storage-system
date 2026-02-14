@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUncheckedRounded';
+import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import {
   Box,
   Card,
@@ -8,6 +9,7 @@ import {
   Checkbox,
   CircularProgress,
   Stack,
+  Tooltip,
   Typography
 } from '@mui/material';
 import { FileActions } from './File';
@@ -322,20 +324,25 @@ export function GridLayout({
                 <DynamicRenderedIcon filename={file.filename} iconProps={iconProps} />
               )}
             </Box>
-            <Typography
-              variant="body2"
-              fontWeight={600}
-              noWrap
-              title={file.filename}
-              sx={{
-                width: '100%',
-                textAlign: 'center',
-                overflow: 'hidden',
-                textOverflow: 'ellipsis'
-              }}
-            >
-              {file.filename}
-            </Typography>
+            <Stack direction="row" alignItems="center" justifyContent="center" spacing={0.5} sx={{ width: '100%' }}>
+              <Typography
+                variant="body2"
+                fontWeight={600}
+                noWrap
+                title={file.filename}
+                sx={{
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis'
+                }}
+              >
+                {file.filename}
+              </Typography>
+              {file.isShared && (
+                <Tooltip title="Shared">
+                  <PeopleRoundedIcon sx={{ fontSize: 14, color: 'info.main', flexShrink: 0 }} />
+                </Tooltip>
+              )}
+            </Stack>
             <Typography variant="caption" color="text.secondary" sx={{ mt: 0.25 }}>
               {formatFileSize(file.size)}
             </Typography>

@@ -33,6 +33,7 @@ export interface DriveFile {
   readonly filename: string;
   readonly size: number;
   readonly createdAt: string;
+  readonly isShared?: boolean;
 }
 
 /** Parse an unknown API value into a DriveFile, or null if invalid. */
@@ -46,7 +47,8 @@ export function driveFileFromUnknown(value: unknown): DriveFile | null {
     typeof c.createdAt !== 'string'
   )
     return null;
-  return { fileId: c.fileId, filename: c.filename, size: c.size, createdAt: c.createdAt };
+  const isShared = (value as Record<string, unknown>).isShared === true;
+  return { fileId: c.fileId, filename: c.filename, size: c.size, createdAt: c.createdAt, isShared };
 }
 
 /** Format a byte size into a human-readable string. */
@@ -119,5 +121,13 @@ export interface SharedFile {
   sharedBy: string;
   sharedByEmail: string;
   permission: SharePermission;
+  expiresAt: string;
+}
+
+/** A single share record for a file owned by the current user. */
+export interface FileShare {
+  sharedWith: string;
+  permission: SharePermission;
+  sharedAt: string;
   expiresAt: string;
 }

@@ -7,6 +7,9 @@ import {
   getDownloadUrl,
   listFiles,
   listSharedWithMe,
+  listFileShares as apiListFileShares,
+  unshareFile as apiUnshareFile,
+  updateSharePermission as apiUpdateSharePermission,
   moveFile as apiMoveFile,
   moveFolder as apiMoveFolder,
   renameFile as apiRenameFile,
@@ -14,7 +17,7 @@ import {
   shareFile as apiShareFile,
   uploadFile
 } from '../api';
-import type { DriveFile, DriveFolder, SharedFile, SharePermission } from '../types/drive';
+import type { DriveFile, DriveFolder, SharedFile, FileShare, SharePermission } from '../types/drive';
 import { driveFileFromUnknown } from '../types/drive';
 
 // ---------------------------------------------------------------------------
@@ -176,6 +179,60 @@ export async function shareFileResult(
     return { success: false, error: message };
   }
 }
+
+// ---------------------------------------------------------------------------
+// Share management (list / revoke / update permission)
+// ---------------------------------------------------------------------------
+
+export interface FetchFileSharesResult {
+  shares: FileShare[];
+  error?: string;
+}
+
+export async function fetchFileShares(fileId: string): Promise<FetchFileSharesResult> {
+  try {
+    const data = await apiListFileShares(fileId);
+    const shares: FileShare[] = (data.shares ?? []).map((s) => ({
+      sharedWith: s.sharedWith,
+      permission: s.permission as SharePermission,
+      sharedAt: s.sharedAt,
+      expiresAt: s.expiresAt
+    }));
+    return { shares };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to load shares';
+    return { shares: [], error: message };
+  }
+}
+
+export interface RevokeShareResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function revokeShare(fileId: string, userId: string): Promise<RevokeShareResult> {
+  return wrapApiCall(() => apiUnshareFile(fileId, userId), 'Revoke failed');
+}
+
+export interface UpdateSharePermissionResult {
+  success: boolean;
+  error?: string;
+}
+
+export async function updateSharePermissionResult(
+  fileId: string,
+  targetUserId: string,
+  permission: string
+): Promise<UpdateSharePermissionResult> {
+  return wrapApiCall(
+    () => apiUpdateSharePermission(fileId, targetUserId, permission),
+    'Update permission failed'
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Batch upload
+// ---------------------------------------------------------------------------
 
 export interface UploadBatchResult {
   successCount: number;

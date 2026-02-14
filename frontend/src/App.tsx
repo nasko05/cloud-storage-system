@@ -467,9 +467,16 @@ function App(): JSX.Element {
       setError(result.error ?? 'Share failed');
     } else {
       setShareSuccess(`Shared with ${params.shareWithEmail}`);
+      // Refresh file list so isShared icon updates
+      await loadFiles(false);
     }
 
     setLoading(false);
+  };
+
+  /** Called by ShareDialog when a share is revoked or permission updated. */
+  const handleShareChanged = (): void => {
+    void loadFiles(false);
   };
 
   // =========================================================================
@@ -812,6 +819,7 @@ function App(): JSX.Element {
             target={shareTarget}
             onClose={() => setShareTarget(null)}
             onSubmit={handleShareSubmit}
+            onShareChanged={handleShareChanged}
           />
 
           {/* Share success notification */}

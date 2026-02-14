@@ -1,6 +1,7 @@
 import React from 'react';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import {
   IconButton,
   Stack,
@@ -29,10 +30,15 @@ interface FileActionsProps {
 
 export function FileItem({ file }: FileItemProps): React.ReactElement {
   return (
-    <Stack spacing={0.5}>
+    <Stack direction="row" alignItems="center" spacing={0.5}>
       <Typography fontWeight={600} noWrap title={file.filename}>
         {file.filename}
       </Typography>
+      {file.isShared && (
+        <Tooltip title="Shared">
+          <PeopleRoundedIcon sx={{ fontSize: 16, color: 'info.main', flexShrink: 0 }} />
+        </Tooltip>
+      )}
     </Stack>
   );
 }

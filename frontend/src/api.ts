@@ -47,6 +47,28 @@ interface SharedWithMeResult extends ApiResult {
   }>;
 }
 
+interface ListFileSharesResult extends ApiResult {
+  shares?: Array<{
+    sharedWith: string;
+    permission: string;
+    sharedAt: string;
+    expiresAt: string;
+  }>;
+}
+
+interface UpdateShareResult extends ApiResult {
+  message?: string;
+  fileId?: string;
+  targetUserId?: string;
+  permission?: string;
+}
+
+interface UnshareResult extends ApiResult {
+  message?: string;
+  fileId?: string;
+  revokedUser?: string;
+}
+
 class DriveApiClient {
   public static async call<T extends ApiResult>(endpoint: string, body: ApiBody): Promise<T> {
     const token = await getToken();
@@ -173,4 +195,22 @@ export const shareFile = async (
     shareWithEmail,
     permission,
     ...(expiryDays !== undefined ? { expiryDays } : {})
+  });
+
+export const listFileShares = async (fileId: string): Promise<ListFileSharesResult> =>
+  DriveApiClient.call<ListFileSharesResult>('/upload', { action: 'list-shares', fileId });
+
+export const unshareFile = async (fileId: string, revokeUserId: string): Promise<UnshareResult> =>
+  DriveApiClient.call<UnshareResult>('/upload', { action: 'unshare', fileId, revokeUserId });
+
+export const updateSharePermission = async (
+  fileId: string,
+  targetUserId: string,
+  permission: string
+): Promise<UpdateShareResult> =>
+  DriveApiClient.call<UpdateShareResult>('/upload', {
+    action: 'update-share',
+    fileId,
+    targetUserId,
+    permission
   });
