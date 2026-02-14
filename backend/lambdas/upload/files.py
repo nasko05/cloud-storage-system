@@ -1,16 +1,28 @@
 import time
 import random
 import string
-from datetime import datetime
+from datetime import datetime, timezone
 from boto3.dynamodb.conditions import Key
 from common import s3, table, BUCKET, EXPIRY, response
 
 
+def _normalized_list_path(folder):
+    if folder is None or (isinstance(folder, str) and not folder.strip()):
+        return None
+    path = folder.strip().rstrip('/')
+    return path if path.startswith('/') else f'/{path}'
+
+
 def list_files(user_id, folder=None):
-    prefix = f'FILE#{folder}' if folder else 'FILE#'
-    result = table.query(
-        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(prefix)
+    list_path = _normalized_list_path(folder)
+    is_root = list_path is None or list_path == '/'
+
+    # Files in current directory
+    file_prefix = 'FILE#/' if is_root else f'FILE#{list_path}/'
+    file_result = table.query(
+        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(file_prefix)
     )
+    target_path = '/' if is_root else list_path
     files = [
         {
             'fileId': item['fileId'],
@@ -20,10 +32,42 @@ def list_files(user_id, folder=None):
             'size': item['size'],
             'createdAt': item['createdAt']
         }
-        for item in result.get('Items', [])
-        if item.get('itemType') == 'FILE'
+        for item in file_result.get('Items', [])
+        if item.get('itemType') == 'FILE' and item.get('path') == target_path
     ]
-    return response(200, {'files': files})
+
+    # Folders in current directory (direct children only)
+    folder_prefix = 'FOLDER#/' if is_root else f'FOLDER#{list_path}/'
+    folder_result = table.query(
+        KeyConditionExpression=Key('pk').eq(f'USER#{user_id}') & Key('sk').begins_with(folder_prefix)
+    )
+    if is_root:
+        folders = [
+            {
+                'folderId': item['folderId'],
+                'name': item['name'],
+                'path': item['path'],
+                'createdAt': item['createdAt']
+            }
+            for item in folder_result.get('Items', [])
+            if item.get('itemType') == 'FOLDER' and item.get('path', '').count('/') == 1
+        ]
+    else:
+        prefix_with_slash = f'{list_path}/'
+        folders = [
+            {
+                'folderId': item['folderId'],
+                'name': item['name'],
+                'path': item['path'],
+                'createdAt': item['createdAt']
+            }
+            for item in folder_result.get('Items', [])
+            if item.get('itemType') == 'FOLDER'
+            and item.get('path', '').startswith(prefix_with_slash)
+            and item['path'].replace(prefix_with_slash, '').count('/') == 0
+        ]
+
+    return response(200, {'files': files, 'folders': folders})
 
 
 def upload_file(user_id, user_email, body):
@@ -39,10 +83,13 @@ def upload_file(user_id, user_email, body):
 
     random_suffix = ''.join(random.choices(string.ascii_lowercase + string.digits, k=8))
     file_id = f'{int(time.time() * 1000)}-{random_suffix}'
-    s3_key = f'files/{user_id}/{file_id}/{filename}'
 
     normalized_path = '/'.join(filter(None, file_path.split('/')))
     normalized_path = f'/{normalized_path}' if normalized_path else '/'
+
+    # Auto-disambiguate: if a file with the same name already exists, append (1), (2), etc.
+    filename = _disambiguate_filename(user_id, normalized_path, filename)
+    s3_key = f'files/{user_id}/{file_id}/{filename}'
 
     upload_url = s3.generate_presigned_url(
         'put_object',
@@ -74,14 +121,26 @@ def upload_file(user_id, user_email, body):
     return response(200, {
         'uploadUrl': upload_url,
         'fileId': file_id,
+        'filename': filename,
         's3Key': s3_key,
         'expiresIn': EXPIRY
     })
 
 
-def delete_file(user_id, file_id):
+def _normalize_path(path):
+    """Normalize path: single leading slash, no trailing slash (except root)."""
+    if not path or not str(path).strip():
+        return '/'
+    parts = [p for p in str(path).strip().split('/') if p and p != '.' and p != '..']
+    if not parts:
+        return '/'
+    return '/' + '/'.join(parts)
+
+
+def _find_file_by_id(user_id, file_id):
+    """Look up a file via GSI1 and verify ownership. Returns (file_item, all_items, error_response)."""
     if not file_id:
-        return response(400, {'error': 'fileId required'})
+        return None, [], response(400, {'error': 'fileId required'})
 
     result = table.query(
         IndexName='GSI1',
@@ -91,7 +150,141 @@ def delete_file(user_id, file_id):
     file_item = next((i for i in items if i.get('itemType') == 'FILE'), None)
 
     if not file_item or file_item.get('ownerId') != user_id:
-        return response(403, {'error': 'Access denied'})
+        return None, items, response(403, {'error': 'Access denied'})
+
+    return file_item, items, None
+
+
+def _file_exists_in_folder(user_id, path, filename):
+    """Check if a file with this name already exists at the given path."""
+    sk = f'FILE#{path}/{filename}'
+    result = table.get_item(Key={'pk': f'USER#{user_id}', 'sk': sk})
+    return result.get('Item') is not None
+
+
+def _disambiguate_filename(user_id, path, filename):
+    """Return a unique filename in the folder by appending (N) if needed."""
+    if not _file_exists_in_folder(user_id, path, filename):
+        return filename
+
+    # Split into name and extension
+    dot_idx = filename.rfind('.')
+    if dot_idx > 0:
+        base, ext = filename[:dot_idx], filename[dot_idx:]
+    else:
+        base, ext = filename, ''
+
+    counter = 1
+    while counter < 1000:
+        candidate = f'{base} ({counter}){ext}'
+        if not _file_exists_in_folder(user_id, path, candidate):
+            return candidate
+        counter += 1
+
+    # Fallback: use timestamp suffix
+    return f'{base} ({int(time.time())}){ext}'
+
+
+def move_file(user_id, file_id, destination_path):
+    """Move a file to a different folder. S3 key stays the same."""
+    file_item, _items, err = _find_file_by_id(user_id, file_id)
+    if err:
+        return err
+
+    dest = _normalize_path(destination_path)
+
+    # Validate destination folder exists (unless root)
+    if dest != '/':
+        pk = f'USER#{user_id}'
+        folder_check = table.get_item(Key={'pk': pk, 'sk': f'FOLDER#{dest}'})
+        if not folder_check.get('Item'):
+            return response(404, {'error': 'Destination folder not found', 'path': dest})
+
+    old_sk = file_item['sk']
+    filename = file_item['filename']
+    new_sk = f'FILE#{dest}/{filename}'
+
+    if old_sk == new_sk:
+        return response(200, {'message': 'File already in destination', 'fileId': file_id, 'newPath': dest})
+
+    # Check for name conflict at destination
+    if _file_exists_in_folder(user_id, dest, filename):
+        return response(409, {
+            'error': 'A file with that name already exists in the destination folder',
+            'filename': filename,
+            'path': dest
+        })
+
+    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    # Build new item from old, updating path-related fields
+    new_item = dict(file_item)
+    new_item['sk'] = new_sk
+    new_item['path'] = dest
+    new_item['updatedAt'] = now
+
+    try:
+        # Delete old, write new (atomic per-item)
+        table.delete_item(Key={'pk': file_item['pk'], 'sk': old_sk})
+        table.put_item(Item=new_item)
+    except Exception as e:
+        print(f'move_file failed: {e}')
+        return response(500, {'error': 'Internal server error'})
+
+    return response(200, {'message': 'File moved', 'fileId': file_id, 'newPath': dest})
+
+
+def rename_file(user_id, file_id, new_name):
+    """Rename a file. S3 key stays the same; download uses DynamoDB filename for Content-Disposition."""
+    if not new_name or not str(new_name).strip():
+        return response(400, {'error': 'newName required'})
+
+    name = str(new_name).strip()
+    if '/' in name:
+        return response(400, {'error': 'newName must not contain /'})
+    if len(name) > 255:
+        return response(400, {'error': 'newName too long (max 255 characters)'})
+
+    file_item, _items, err = _find_file_by_id(user_id, file_id)
+    if err:
+        return err
+
+    old_sk = file_item['sk']
+    file_path = file_item['path']
+    new_sk = f'FILE#{file_path}/{name}'
+
+    if file_item['filename'] == name:
+        return response(200, {'message': 'Name unchanged', 'fileId': file_id, 'newName': name})
+
+    # Check for name conflict
+    if _file_exists_in_folder(user_id, file_path, name):
+        return response(409, {
+            'error': 'A file with that name already exists in this folder',
+            'filename': name,
+            'path': file_path
+        })
+
+    now = datetime.now(timezone.utc).isoformat().replace('+00:00', 'Z')
+
+    new_item = dict(file_item)
+    new_item['sk'] = new_sk
+    new_item['filename'] = name
+    new_item['updatedAt'] = now
+
+    try:
+        table.delete_item(Key={'pk': file_item['pk'], 'sk': old_sk})
+        table.put_item(Item=new_item)
+    except Exception as e:
+        print(f'rename_file failed: {e}')
+        return response(500, {'error': 'Internal server error'})
+
+    return response(200, {'message': 'File renamed', 'fileId': file_id, 'newName': name})
+
+
+def delete_file(user_id, file_id):
+    file_item, items, err = _find_file_by_id(user_id, file_id)
+    if err:
+        return err
 
     try:
         s3.delete_object(Bucket=BUCKET, Key=file_item['s3Key'])
