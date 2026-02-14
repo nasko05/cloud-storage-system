@@ -78,6 +78,10 @@ Resources:
             Status: Enabled
             NoncurrentVersionExpiration:
               NoncurrentDays: 180
+          - Id: ExpireZipDownloads
+            Status: Enabled
+            Prefix: zips/
+            ExpirationInDays: 1
       CorsConfiguration:
         CorsRules:
           - AllowedHeaders:
@@ -234,6 +238,12 @@ Resources:
       LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-public-download-fn"
       RetentionInDays: !Ref LogRetentionDays
 
+  ZipDownloadFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-zip-download-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
   #############################################################################
   # IAM ROLES - Least Privilege per Lambda
   #############################################################################
@@ -365,6 +375,44 @@ Resources:
                 Resource:
                   - !GetAtt MetadataTable.Arn
 
+  ZipDownloadLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-zip-download-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: ZipDownloadLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-zip-download-fn:*"
+              - Sid: S3Access
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:PutObject
+                Resource:
+                  - !Sub "${CloudStorageBucket.Arn}/*"
+              - Sid: DynamoDBReadAccess
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt MetadataTable.Arn
+                  - !Sub "${MetadataTable.Arn}/index/*"
+
   #############################################################################
   # LAMBDA FUNCTIONS
   #############################################################################
@@ -420,6 +468,26 @@ Resources:
       Role: !GetAtt PublicDownloadLambdaRole.Arn
       Timeout: 30
       MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTable
+          PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  ZipDownloadFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: ZipDownloadFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-zip-download-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt ZipDownloadLambdaRole.Arn
+      Timeout: 300
+      MemorySize: 512
       Environment:
         Variables:
           BUCKET_NAME: !Ref CloudStorageBucket
@@ -517,6 +585,14 @@ Resources:
       IntegrationUri: !GetAtt PublicDownloadFunction.Arn
       PayloadFormatVersion: "2.0"
 
+  ZipDownloadIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt ZipDownloadFunction.Arn
+      PayloadFormatVersion: "2.0"
+
   #############################################################################
   # API ROUTES
   #############################################################################
@@ -537,6 +613,15 @@ Resources:
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
       Target: !Sub "integrations/${DownloadIntegration}"
+
+  ZipDownloadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /zip"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${ZipDownloadIntegration}"
 
   ListFilesRoute:
     Type: AWS::ApiGatewayV2::Route
@@ -586,6 +671,14 @@ Resources:
     Type: AWS::Lambda::Permission
     Properties:
       FunctionName: !Ref PublicDownloadFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  ZipDownloadFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref ZipDownloadFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
@@ -651,3 +744,7 @@ Outputs:
   PublicDownloadFunctionArn:
     Description: Public Download Lambda function ARN
     Value: !GetAtt PublicDownloadFunction.Arn
+
+  ZipDownloadFunctionArn:
+    Description: Zip Download Lambda function ARN
+    Value: !GetAtt ZipDownloadFunction.Arn

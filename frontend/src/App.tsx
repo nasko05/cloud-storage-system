@@ -163,6 +163,7 @@ function App(): JSX.Element {
   // --- Drive actions (extracted hook) ---
   const {
     handleDownload,
+    handleBulkDownloadAsZip,
     handleDelete,
     handleDeleteFolder,
     handleBulkDelete,
@@ -367,7 +368,9 @@ function App(): JSX.Element {
   };
 
   const handleCtxDownload = (): void => {
-    if (ctxTarget?.type === 'file') {
+    if (selectedItems.size > 1) {
+      void handleBulkDownloadAsZip();
+    } else if (ctxTarget?.type === 'file') {
       void handleDownload(ctxTarget.file);
     }
   };
@@ -795,6 +798,15 @@ function App(): JSX.Element {
             target={ctxTarget}
             position={ctxPosition}
             selectedCount={selectedItems.size}
+            showDownload={
+              (ctxTarget?.type === 'file' && selectedItems.size <= 1) ||
+              selectedItems.size > 1
+            }
+            downloadLabel={
+              selectedItems.size > 1
+                ? `Download as ZIP (${selectedItems.size} items)`
+                : 'Download'
+            }
             onClose={handleCtxClose}
             onRename={handleCtxRename}
             onMoveTo={handleCtxMoveTo}

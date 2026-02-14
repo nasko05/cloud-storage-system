@@ -23,6 +23,11 @@ interface DownloadUrlResult extends ApiResult {
   downloadUrl?: string;
 }
 
+interface CreateDownloadZipResult extends ApiResult {
+  downloadUrl?: string;
+  expiresIn?: number;
+}
+
 interface CreateFolderResult extends ApiResult {
   folderId?: string;
   folderName?: string;
@@ -237,6 +242,12 @@ export const uploadFile = async (
 
 export const getDownloadUrl = async (fileId: string): Promise<DownloadUrlResult> =>
   DriveApiClient.call<DownloadUrlResult>('/download', { fileId });
+
+export const createDownloadZip = async (
+  fileIds: string[],
+  folderPaths: string[]
+): Promise<CreateDownloadZipResult> =>
+  DriveApiClient.call<CreateDownloadZipResult>('/zip', { fileIds, folderPaths });
 
 export const deleteFile = async (fileId: string): Promise<ApiResult> =>
   DriveApiClient.call<ApiResult>('/upload', { action: 'delete', fileId });

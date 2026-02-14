@@ -3,6 +3,7 @@ import type { DriveFile, DriveFolder } from '../types/drive';
 import { deleteFolder } from '../api';
 import {
   getFileDownloadUrl,
+  getBulkDownloadZipUrl,
   deleteFileResult,
   moveFileResult,
   moveFolderResult
@@ -22,6 +23,7 @@ export interface UseDriveActionsInput {
 
 export interface UseDriveActionsReturn {
   handleDownload: (file: DriveFile) => Promise<void>;
+  handleBulkDownloadAsZip: () => Promise<void>;
   handleDelete: (file: DriveFile) => Promise<void>;
   handleDeleteFolder: (folder: DriveFolder) => Promise<void>;
   handleBulkDelete: () => Promise<void>;
@@ -49,6 +51,35 @@ export function useDriveActions({
       window.open(url, '_blank', 'noopener,noreferrer');
     } else {
       setError('Download failed');
+    }
+  }
+
+  async function handleBulkDownloadAsZip(): Promise<void> {
+    const fileIds: string[] = [];
+    const folderPaths: string[] = [];
+    for (const id of Array.from(selectedItems)) {
+      const file = files.find((f) => f.fileId === id);
+      if (file) {
+        fileIds.push(file.fileId);
+        continue;
+      }
+      const folder = folders.find((f) => f.folderId === id);
+      if (folder) {
+        folderPaths.push(folder.path);
+      }
+    }
+    if (fileIds.length === 0 && folderPaths.length === 0) {
+      setError('No files or folders to download');
+      return;
+    }
+    setLoading(true);
+    setError('');
+    const result = await getBulkDownloadZipUrl(fileIds, folderPaths);
+    setLoading(false);
+    if (result.downloadUrl) {
+      window.open(result.downloadUrl, '_blank', 'noopener,noreferrer');
+    } else {
+      setError(result.error ?? 'Failed to create ZIP');
     }
   }
 
@@ -184,5 +215,5 @@ export function useDriveActions({
     [selectedItems, files, folders, setLoading, setError, setSelectedItems, loadFiles]
   );
 
-  return { handleDownload, handleDelete, handleDeleteFolder, handleBulkDelete, handleDrop };
+  return { handleDownload, handleBulkDownloadAsZip, handleDelete, handleDeleteFolder, handleBulkDelete, handleDrop };
 }

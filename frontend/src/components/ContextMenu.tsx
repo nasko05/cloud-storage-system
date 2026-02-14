@@ -20,6 +20,10 @@ export interface ContextMenuProps {
   position: ContextMenuPosition | null;
   /** Number of selected items (show bulk label when > 1). */
   selectedCount?: number;
+  /** Show Download item (single file or bulk ZIP). */
+  showDownload?: boolean;
+  /** Label for Download item: "Download" or "Download as ZIP (N items)". */
+  downloadLabel?: string;
   onClose: () => void;
   onRename: () => void;
   onMoveTo: () => void;
@@ -32,6 +36,8 @@ export function ContextMenu({
   target,
   position,
   selectedCount = 0,
+  showDownload = false,
+  downloadLabel = 'Download',
   onClose,
   onRename,
   onMoveTo,
@@ -79,7 +85,7 @@ export function ContextMenu({
         </ListItemIcon>
         <ListItemText>{isBulk ? `Move ${selectedCount} items...` : 'Move to...'}</ListItemText>
       </MenuItem>
-      {isFile && !isBulk && (
+      {showDownload && (
         <MenuItem
           onClick={() => {
             onClose();
@@ -89,7 +95,7 @@ export function ContextMenu({
           <ListItemIcon>
             <DownloadRoundedIcon fontSize="small" />
           </ListItemIcon>
-          <ListItemText>Download</ListItemText>
+          <ListItemText>{downloadLabel}</ListItemText>
         </MenuItem>
       )}
       {isFile && !isBulk && (
