@@ -18,7 +18,7 @@ export function UploadProgressPanel({
   if (uploadItems.length === 0) return null;
 
   return (
-    <Paper elevation={1} sx={{ borderRadius: 3, p: 2 }}>
+    <Paper elevation={0} sx={{ borderRadius: 0, border: 1, borderColor: 'divider', p: 1.25 }}>
       <Stack direction="row" justifyContent="space-between" alignItems="center" sx={{ mb: 1 }}>
         <Typography variant="subtitle1" fontWeight={700}>
           Upload progress

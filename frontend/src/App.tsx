@@ -1,13 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
-  AppBar,
   Box,
   Button,
   Chip,
   CircularProgress,
-  Container,
   CssBaseline,
+  Divider,
   Dialog,
   DialogActions,
   DialogContent,
@@ -28,8 +27,10 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
+import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import FolderSharedRoundedIcon from '@mui/icons-material/FolderSharedRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
@@ -113,6 +114,17 @@ function isEditableTarget(target: EventTarget | null): boolean {
   );
 }
 
+function getParentPath(path: string): string {
+  const slashIndex = path.lastIndexOf('/');
+  return slashIndex === -1 ? '' : path.slice(0, slashIndex);
+}
+
+function sortFoldersByName(values: DriveFolder[]): DriveFolder[] {
+  return [...values].sort((a, b) =>
+    a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  );
+}
+
 function App(): JSX.Element {
   // --- Public link route: /s/{token} (no auth required) ---
   const publicLinkMatch = window.location.pathname.match(/^\/s\/([a-f0-9-]+)$/i);
@@ -153,6 +165,8 @@ function App(): JSX.Element {
   const [driveTab, setDriveTab] = useState<DriveTab>('my-drive');
   const [sharedFiles, setSharedFiles] = useState<SharedFile[]>([]);
   const [sharedLoading, setSharedLoading] = useState(false);
+  const [folderTreeByPath, setFolderTreeByPath] = useState<Record<string, DriveFolder[]>>({});
+  const [expandedFolders, setExpandedFolders] = useState<Set<string>>(() => new Set(['']));
 
   const {
     recentFiles,
@@ -178,6 +192,10 @@ function App(): JSX.Element {
     const result = await fetchFiles(currentPath || undefined);
     setFiles(result.files);
     setFolders(result.folders);
+    setFolderTreeByPath((prev) => ({
+      ...prev,
+      [currentPath]: sortFoldersByName(result.folders)
+    }));
     if (result.error) setError(result.error);
     setLoading(false);
   };
@@ -261,6 +279,21 @@ function App(): JSX.Element {
     localStorage.setItem(VIEW_PREFS_KEY, JSON.stringify({ viewMode, gridSize }));
   }, [viewMode, gridSize]);
 
+  useEffect(() => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      next.add('');
+      if (!currentPath) return next;
+      const parts = currentPath.split('/').filter(Boolean);
+      let acc = '';
+      parts.forEach((part) => {
+        acc = acc ? `${acc}/${part}` : part;
+        next.add(acc);
+      });
+      return next;
+    });
+  }, [currentPath]);
+
   // =========================================================================
   // Auth
   // =========================================================================
@@ -275,6 +308,8 @@ function App(): JSX.Element {
     setFiles([]);
     setFolders([]);
     setSharedFiles([]);
+    setFolderTreeByPath({});
+    setExpandedFolders(new Set(['']));
     setCurrentPath('');
   };
 
@@ -595,6 +630,114 @@ function App(): JSX.Element {
     [handleDownload, handleDelete, handleDownloadFolder, handleDeleteFolder]
   );
 
+  const currentFolderParent = useMemo(() => getParentPath(currentPath), [currentPath]);
+
+  const handleFolderSelection = useCallback((path: string): void => {
+    setDriveTab('my-drive');
+    setCurrentPath(path);
+  }, []);
+
+  const handleFolderExpandToggle = useCallback((path: string): void => {
+    setExpandedFolders((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) {
+        next.delete(path);
+      } else {
+        next.add(path);
+      }
+      return next;
+    });
+  }, []);
+
+  const renderFolderTree = useCallback(
+    (parentPath: string, depth = 0): React.ReactNode => {
+      const childFolders = folderTreeByPath[parentPath] ?? [];
+      if (!childFolders.length) {
+        if (depth === 0) {
+          return (
+            <Typography variant="body2" color="text.secondary" sx={{ px: 2, py: 1.5 }}>
+              {loading ? 'Loading folders...' : 'No folders yet'}
+            </Typography>
+          );
+        }
+        return null;
+      }
+
+      return childFolders.map((folder) => {
+        const knownChildren = folderTreeByPath[folder.path] ?? [];
+        const hasKnownChildren = knownChildren.length > 0;
+        const isExpanded = expandedFolders.has(folder.path);
+        const isCurrent = currentPath === folder.path;
+
+        return (
+          <Box key={folder.folderId}>
+            <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pl: 1 + depth * 2 }}>
+              {hasKnownChildren ? (
+                <Button
+                  size="small"
+                  onClick={(event) => {
+                    event.stopPropagation();
+                    handleFolderExpandToggle(folder.path);
+                  }}
+                  sx={{
+                    minWidth: 26,
+                    width: 26,
+                    height: 26,
+                    p: 0,
+                    borderRadius: 0
+                  }}
+                  aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
+                >
+                  {isExpanded ? (
+                    <ExpandMoreRoundedIcon sx={{ fontSize: 18 }} />
+                  ) : (
+                    <ChevronRightRoundedIcon sx={{ fontSize: 18 }} />
+                  )}
+                </Button>
+              ) : (
+                <Box sx={{ width: 26, height: 26 }} />
+              )}
+              <Button
+                fullWidth
+                size="small"
+                onClick={() => {
+                  handleFolderSelection(folder.path);
+                  setExpandedFolders((prev) => new Set(prev).add(folder.path));
+                }}
+                startIcon={<FolderRoundedIcon sx={{ fontSize: 19, color: 'warning.dark' }} />}
+                sx={{
+                  justifyContent: 'flex-start',
+                  textTransform: 'none',
+                  py: 0.5,
+                  px: 1,
+                  borderRadius: 0,
+                  color: 'text.primary',
+                  backgroundColor: isCurrent ? 'action.selected' : 'transparent',
+                  '&:hover': {
+                    backgroundColor: isCurrent ? 'action.selected' : 'action.hover'
+                  }
+                }}
+              >
+                <Typography noWrap variant="body2" fontWeight={isCurrent ? 600 : 500}>
+                  {folder.name}
+                </Typography>
+              </Button>
+            </Stack>
+            {isExpanded ? renderFolderTree(folder.path, depth + 1) : null}
+          </Box>
+        );
+      });
+    },
+    [
+      currentPath,
+      expandedFolders,
+      folderTreeByPath,
+      handleFolderExpandToggle,
+      handleFolderSelection,
+      loading
+    ]
+  );
+
   // =========================================================================
   // Render
   // =========================================================================
@@ -603,9 +746,19 @@ function App(): JSX.Element {
     return (
       <>
         <CssBaseline />
-        <Container maxWidth="md">
-          <AuthForm onAuthenticated={handleAuthenticated} />
-        </Container>
+        <Box
+          sx={{
+            minHeight: '100vh',
+            px: { xs: 2, sm: 3 },
+            py: 3,
+            display: 'grid',
+            placeItems: 'center'
+          }}
+        >
+          <Box sx={{ width: '100%', maxWidth: 720 }}>
+            <AuthForm onAuthenticated={handleAuthenticated} />
+          </Box>
+        </Box>
       </>
     );
   }
@@ -613,36 +766,81 @@ function App(): JSX.Element {
   return (
     <>
       <CssBaseline />
-      <Container maxWidth="md">
-        <Stack spacing={3} sx={{ py: 4 }}>
-          <Paper elevation={1} sx={{ borderRadius: 3, overflow: 'hidden' }}>
-            <AppBar position="static" color="transparent" elevation={0}>
-              <Toolbar sx={{ justifyContent: 'space-between', px: { xs: 2, md: 3 } }}>
-                <Typography variant="h5" fontWeight={700}>
-                  Personal Drive
-                </Typography>
-                <Button
-                  color="inherit"
-                  variant="outlined"
-                  onClick={handleLogout}
-                  startIcon={<LogoutRoundedIcon />}
-                >
-                  Logout
-                </Button>
-              </Toolbar>
-            </AppBar>
-          </Paper>
+      <Box
+        sx={{
+          minHeight: '100vh',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 0
+        }}
+      >
+        <Paper
+          elevation={0}
+          sx={{
+            borderRadius: 0,
+            overflow: 'hidden',
+            borderBottom: 1,
+            borderColor: 'divider'
+          }}
+        >
+          <Toolbar
+            variant="dense"
+            sx={{
+              minHeight: { xs: 50, sm: 54 },
+              px: { xs: 1.75, sm: 2.5 },
+              justifyContent: 'space-between'
+            }}
+          >
+            <Typography variant="h6" fontWeight={700}>
+              Personal Drive
+            </Typography>
+            <Button
+              color="inherit"
+              variant="outlined"
+              size="small"
+              onClick={handleLogout}
+              startIcon={<LogoutRoundedIcon />}
+            >
+              Logout
+            </Button>
+          </Toolbar>
+        </Paper>
 
-          <Paper elevation={1} sx={{ borderRadius: 3, overflow: 'hidden' }}>
+        <Box
+          sx={{
+            flex: 1,
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: { xs: 'column', md: 'row' },
+            gap: 1,
+            px: { xs: 0.5, sm: 1, md: 1.25 },
+            py: { xs: 0.5, sm: 0.75 }
+          }}
+        >
+          <Paper
+            elevation={0}
+            sx={{
+              borderRadius: 0,
+              border: 1,
+              borderColor: 'divider',
+              width: { xs: '100%', md: 320 },
+              flexShrink: 0,
+              overflow: 'hidden',
+              display: 'flex',
+              flexDirection: 'column',
+              maxHeight: { md: 'calc(100vh - 120px)' }
+            }}
+          >
             <Tabs
               value={driveTab}
               onChange={(_, v) => setDriveTab(v as DriveTab)}
-              sx={{ px: 2 }}
+              variant="fullWidth"
+              sx={{ px: 0 }}
             >
               <Tab
                 icon={<FolderRoundedIcon />}
                 iconPosition="start"
-                label="My Drive"
+                label="My files"
                 value="my-drive"
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
@@ -654,225 +852,317 @@ function App(): JSX.Element {
                 sx={{ textTransform: 'none', minHeight: 48 }}
               />
             </Tabs>
+            <Divider />
+            {driveTab === 'my-drive' ? (
+              <Stack spacing={0.75} sx={{ p: 0.75, flex: 1, minHeight: 0 }}>
+                <Typography variant="caption" color="text.secondary" sx={{ px: 1, pt: 0.5 }}>
+                  Folder tree
+                </Typography>
+                <Button
+                  fullWidth
+                  size="small"
+                  onClick={() => handleFolderSelection('')}
+                  startIcon={<FolderRoundedIcon sx={{ fontSize: 19, color: 'warning.dark' }} />}
+                  sx={{
+                    justifyContent: 'flex-start',
+                    textTransform: 'none',
+                    py: 0.5,
+                    px: 1,
+                    borderRadius: 0,
+                    color: 'text.primary',
+                    backgroundColor: currentPath === '' ? 'action.selected' : 'transparent',
+                    '&:hover': {
+                      backgroundColor: currentPath === '' ? 'action.selected' : 'action.hover'
+                    }
+                  }}
+                >
+                  <Typography noWrap variant="body2" fontWeight={currentPath === '' ? 600 : 500}>
+                    Root
+                  </Typography>
+                </Button>
+                <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0.5 }}>
+                  {renderFolderTree('', 0)}
+                </Box>
+              </Stack>
+            ) : (
+              <Stack
+                spacing={1}
+                sx={{
+                  p: 1,
+                  flex: 1,
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  textAlign: 'center'
+                }}
+              >
+                <FolderSharedRoundedIcon sx={{ color: 'text.disabled', fontSize: 38 }} />
+                <Typography variant="body2" color="text.secondary">
+                  Shared files are shown in the center panel.
+                </Typography>
+              </Stack>
+            )}
           </Paper>
 
-          {driveTab === 'my-drive' && (
-            <UploadControlsPanel
-              fileUploadInputRef={fileUploadInputRef}
-              loading={loading}
+          <Stack spacing={1} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+            {error && <Alert severity="error">{error}</Alert>}
+            {uploadSummary && (
+              <Alert severity="info" onClose={() => setUploadSummary('')}>
+                {uploadSummary}
+              </Alert>
+            )}
+
+            {driveTab === 'my-drive' && (
+              <UploadControlsPanel
+                fileUploadInputRef={fileUploadInputRef}
+                loading={loading}
+                isUploading={isUploading}
+                onUploadFilesChange={handleUploadFiles}
+                onOpenFilePicker={openFilePicker}
+                onCreateFolder={handleCreateFolderOpen}
+                onCancelUpload={handleCancelUpload}
+              />
+            )}
+
+            <UploadProgressPanel
+              uploadItems={uploadItems}
+              uploadStats={uploadStats}
               isUploading={isUploading}
-              onUploadFilesChange={handleUploadFiles}
-              onOpenFilePicker={openFilePicker}
-              onCreateFolder={handleCreateFolderOpen}
               onCancelUpload={handleCancelUpload}
             />
-          )}
 
-          <Dialog open={createFolderOpen} onClose={handleCreateFolderClose} maxWidth="xs" fullWidth>
-            <DialogTitle>New folder</DialogTitle>
-            <DialogContent>
-              <Stack spacing={2} sx={{ pt: 1 }}>
-                <Typography variant="body2" color="text.secondary">
-                  Create in: {currentPath || '/'}
-                </Typography>
-                <TextField
-                  autoFocus
-                  label="Folder name"
-                  value={newFolderName}
-                  onChange={(e) => setNewFolderName(e.target.value)}
-                  placeholder="e.g. Documents"
-                  fullWidth
-                  required
-                />
-              </Stack>
-            </DialogContent>
-            <DialogActions>
-              <Button onClick={handleCreateFolderClose}>Cancel</Button>
-              <Button onClick={handleCreateFolderSubmit} variant="contained">
-                Create
-              </Button>
-            </DialogActions>
-          </Dialog>
-
-          {error && <Alert severity="error">{error}</Alert>}
-          {uploadSummary && (
-            <Alert severity="info" onClose={() => setUploadSummary('')}>
-              {uploadSummary}
-            </Alert>
-          )}
-
-          <UploadProgressPanel
-            uploadItems={uploadItems}
-            uploadStats={uploadStats}
-            isUploading={isUploading}
-            onCancelUpload={handleCancelUpload}
-          />
-
-          {driveTab === 'my-drive' && (
-            <QuickAccessPanel
-              recentFiles={recentFiles}
-              frequentFiles={frequentFiles}
-              onOpenFile={(record) => {
-                void handleQuickAccessDownload(record);
-              }}
-            />
-          )}
-
-          {driveTab === 'my-drive' ? (
-            <Paper key="my-drive" elevation={1} sx={{ borderRadius: 3, p: 1.5 }}>
-              {currentPath ? (
-                <Stack direction="row" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                  <Button
-                    size="small"
-                    onClick={() => setCurrentPath(currentPath.replace(/\/[^/]+$/, '') || '')}
-                  >
-                    ↑ Up
-                  </Button>
-                  <Typography variant="body2" color="text.secondary">
-                    {currentPath}
-                  </Typography>
-                </Stack>
-              ) : null}
-              <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1} sx={{ mb: 1 }}>
-                <ToggleButtonGroup
-                  value={viewMode}
-                  exclusive
-                  onChange={(_, next) => next != null && setViewMode(next)}
-                  size="small"
-                  aria-label="View mode"
-                >
-                  <ToggleButton value="grid" aria-label="Grid view">
-                    <GridViewRoundedIcon fontSize="small" />
-                  </ToggleButton>
-                  <ToggleButton value="list" aria-label="List view">
-                    <ViewListRoundedIcon fontSize="small" />
-                  </ToggleButton>
-                </ToggleButtonGroup>
-                {viewMode === 'grid' && (
-                  <ToggleButtonGroup
-                    value={gridSize}
-                    exclusive
-                    onChange={(_, next) => next != null && setGridSize(next)}
-                    size="small"
-                    aria-label="Grid size"
-                  >
-                    <ToggleButton value="small" aria-label="Small grid">
-                      <GridViewRoundedIcon sx={{ fontSize: 18 }} />
-                    </ToggleButton>
-                    <ToggleButton value="medium" aria-label="Medium grid">
-                      <GridViewRoundedIcon sx={{ fontSize: 24 }} />
-                    </ToggleButton>
-                    <ToggleButton value="large" aria-label="Large grid">
-                      <GridViewRoundedIcon sx={{ fontSize: 30 }} />
-                    </ToggleButton>
-                  </ToggleButtonGroup>
-                )}
-              </Stack>
-              {viewMode === 'grid' ? (
-                <GridLayout
-                  files={files}
-                  folders={folders}
-                  loading={loading}
-                  selectedItems={selectedItems}
-                  onDownload={handleDownload}
-                  onDelete={handleDelete}
-                  onFolderClick={(folder) => setCurrentPath(folder.path)}
-                  onDownloadFolder={handleDownloadFolder}
-                  onDeleteFolder={handleDeleteFolder}
-                onContextMenu={handleContextMenu}
-                onSelectionChange={handleGridSelectionChange}
-                onDrop={handleDrop}
-                onExternalDropUpload={(folder, dataTransfer) => {
-                  void uploadFromDataTransfer(dataTransfer, folder.path);
+            {driveTab === 'my-drive' && (
+              <QuickAccessPanel
+                recentFiles={recentFiles}
+                frequentFiles={frequentFiles}
+                onOpenFile={(record) => {
+                  void handleQuickAccessDownload(record);
                 }}
-                getDownloadUrl={getFileDownloadUrl}
-                gridSize={gridSize}
               />
-              ) : (
-                <ListLayout
-                  rows={listRows}
-                  columns={listColumns}
-                  loading={loading}
-                  selectedItems={selectedItems}
-                  onFolderClick={(folder) => setCurrentPath(folder.path)}
-                  onContextMenu={handleContextMenu}
-                  onSelectionChange={handleListSelectionChange}
-                />
-              )}
-            </Paper>
-          ) : (
-            <Paper key="shared-with-me" elevation={1} sx={{ borderRadius: 3, p: 2 }}>
-              {sharedLoading ? (
-                <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
-                  <CircularProgress />
-                </Box>
-              ) : sharedFiles.length === 0 ? (
-                <Box sx={{ textAlign: 'center', py: 4 }}>
-                  <FolderSharedRoundedIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                  <Typography color="text.secondary">
-                    No files have been shared with you yet.
-                  </Typography>
-                </Box>
-              ) : (
-                <List disablePadding>
-                  {sharedFiles.map((sf) => (
-                    <ListItem
-                      key={sf.fileId}
-                      secondaryAction={
-                        sf.permission === 'download' || sf.permission === 'edit' ? (
-                          <Tooltip title="Download">
-                            <Button
-                              size="small"
-                              onClick={() =>
-                                void handleDownload({
-                                  fileId: sf.fileId,
-                                  filename: sf.filename,
-                                  size: 0,
-                                  createdAt: ''
-                                } as DriveFile)
-                              }
-                            >
-                              <DownloadRoundedIcon fontSize="small" />
-                            </Button>
-                          </Tooltip>
-                        ) : null
-                      }
-                      sx={{
-                        borderBottom: '1px solid',
-                        borderColor: 'divider',
-                        '&:last-child': { borderBottom: 'none' }
-                      }}
-                    >
-                      <ListItemIcon>
-                        <InsertDriveFileRoundedIcon color="action" />
-                      </ListItemIcon>
-                      <ListItemText
-                        primary={sf.filename}
-                        secondary={
-                          <Stack component="span" direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
-                            <Typography component="span" variant="caption" color="text.secondary">
-                              From: {sf.sharedByEmail}
-                            </Typography>
-                            <Chip
-                              label={sf.permission === 'read' ? 'View' : sf.permission === 'download' ? 'Download' : 'Edit'}
-                              size="small"
-                              variant="outlined"
-                              sx={{ height: 20, fontSize: '0.7rem' }}
-                            />
-                            <Typography component="span" variant="caption" color="text.secondary">
-                              Expires: {new Date(sf.expiresAt).toLocaleDateString()}
-                            </Typography>
-                          </Stack>
-                        }
-                      />
-                    </ListItem>
-                  ))}
-                </List>
-              )}
-            </Paper>
-          )}
+            )}
 
-          <ContextMenu
+            {driveTab === 'my-drive' ? (
+              <Paper
+                key="my-drive"
+                elevation={0}
+                sx={{
+                  borderRadius: 0,
+                  border: 1,
+                  borderColor: 'divider',
+                  p: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minHeight: 0,
+                  flex: 1
+                }}
+              >
+                <Stack
+                  direction={{ xs: 'column', sm: 'row' }}
+                  justifyContent="space-between"
+                  alignItems={{ xs: 'flex-start', sm: 'center' }}
+                  spacing={1}
+                  sx={{ mb: 1.25 }}
+                >
+                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
+                    <Typography variant="body2" color="text.secondary">
+                      Path:
+                    </Typography>
+                    <Button
+                      size="small"
+                      onClick={() => handleFolderSelection(currentFolderParent)}
+                      disabled={!currentPath}
+                    >
+                      Up
+                    </Button>
+                    <Typography variant="body2" color="text.secondary" noWrap>
+                      {currentPath || '/'}
+                    </Typography>
+                  </Stack>
+                  <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1}>
+                    <ToggleButtonGroup
+                      value={viewMode}
+                      exclusive
+                      onChange={(_, next) => next != null && setViewMode(next)}
+                      size="small"
+                      aria-label="View mode"
+                    >
+                      <ToggleButton value="grid" aria-label="Grid view">
+                        <GridViewRoundedIcon fontSize="small" />
+                      </ToggleButton>
+                      <ToggleButton value="list" aria-label="List view">
+                        <ViewListRoundedIcon fontSize="small" />
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+                    {viewMode === 'grid' && (
+                      <ToggleButtonGroup
+                        value={gridSize}
+                        exclusive
+                        onChange={(_, next) => next != null && setGridSize(next)}
+                        size="small"
+                        aria-label="Grid size"
+                      >
+                        <ToggleButton value="small" aria-label="Small grid">
+                          <GridViewRoundedIcon sx={{ fontSize: 18 }} />
+                        </ToggleButton>
+                        <ToggleButton value="medium" aria-label="Medium grid">
+                          <GridViewRoundedIcon sx={{ fontSize: 24 }} />
+                        </ToggleButton>
+                        <ToggleButton value="large" aria-label="Large grid">
+                          <GridViewRoundedIcon sx={{ fontSize: 30 }} />
+                        </ToggleButton>
+                      </ToggleButtonGroup>
+                    )}
+                  </Stack>
+                </Stack>
+                <Box sx={{ flex: 1, minHeight: { xs: 320, md: 0 }, overflowY: 'auto', pr: 0.25 }}>
+                  {viewMode === 'grid' ? (
+                    <GridLayout
+                      files={files}
+                      folders={folders}
+                      loading={loading}
+                      selectedItems={selectedItems}
+                      onDownload={handleDownload}
+                      onDelete={handleDelete}
+                      onFolderClick={(folder) => handleFolderSelection(folder.path)}
+                      onDownloadFolder={handleDownloadFolder}
+                      onDeleteFolder={handleDeleteFolder}
+                      onContextMenu={handleContextMenu}
+                      onSelectionChange={handleGridSelectionChange}
+                      onDrop={handleDrop}
+                      onExternalDropUpload={(folder, dataTransfer) => {
+                        void uploadFromDataTransfer(dataTransfer, folder.path);
+                      }}
+                      getDownloadUrl={getFileDownloadUrl}
+                      gridSize={gridSize}
+                    />
+                  ) : (
+                    <ListLayout
+                      rows={listRows}
+                      columns={listColumns}
+                      loading={loading}
+                      selectedItems={selectedItems}
+                      onFolderClick={(folder) => handleFolderSelection(folder.path)}
+                      onContextMenu={handleContextMenu}
+                      onSelectionChange={handleListSelectionChange}
+                    />
+                  )}
+                </Box>
+              </Paper>
+            ) : (
+              <Paper
+                key="shared-with-me"
+                elevation={0}
+                sx={{
+                  borderRadius: 0,
+                  border: 1,
+                  borderColor: 'divider',
+                  p: 1,
+                  display: 'flex',
+                  flexDirection: 'column',
+                  minHeight: 0,
+                  flex: 1
+                }}
+              >
+                {sharedLoading ? (
+                  <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
+                    <CircularProgress />
+                  </Box>
+                ) : sharedFiles.length === 0 ? (
+                  <Box sx={{ textAlign: 'center', py: 4 }}>
+                    <FolderSharedRoundedIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
+                    <Typography color="text.secondary">
+                      No files have been shared with you yet.
+                    </Typography>
+                  </Box>
+                ) : (
+                  <Box sx={{ flex: 1, minHeight: { xs: 320, md: 0 }, overflowY: 'auto', pr: 0.25 }}>
+                    <List disablePadding>
+                      {sharedFiles.map((sf) => (
+                        <ListItem
+                          key={sf.fileId}
+                          secondaryAction={
+                            sf.permission === 'download' || sf.permission === 'edit' ? (
+                              <Tooltip title="Download">
+                                <Button
+                                  size="small"
+                                  onClick={() =>
+                                    void handleDownload({
+                                      fileId: sf.fileId,
+                                      filename: sf.filename,
+                                      size: 0,
+                                      createdAt: ''
+                                    } as DriveFile)
+                                  }
+                                >
+                                  <DownloadRoundedIcon fontSize="small" />
+                                </Button>
+                              </Tooltip>
+                            ) : null
+                          }
+                          sx={{
+                            borderBottom: '1px solid',
+                            borderColor: 'divider',
+                            '&:last-child': { borderBottom: 'none' }
+                          }}
+                        >
+                          <ListItemIcon>
+                            <InsertDriveFileRoundedIcon color="action" />
+                          </ListItemIcon>
+                          <ListItemText
+                            primary={sf.filename}
+                            secondary={
+                              <Stack component="span" direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
+                                <Typography component="span" variant="caption" color="text.secondary">
+                                  From: {sf.sharedByEmail}
+                                </Typography>
+                                <Chip
+                                  label={sf.permission === 'read' ? 'View' : sf.permission === 'download' ? 'Download' : 'Edit'}
+                                  size="small"
+                                  variant="outlined"
+                                  sx={{ height: 20, fontSize: '0.7rem' }}
+                                />
+                                <Typography component="span" variant="caption" color="text.secondary">
+                                  Expires: {new Date(sf.expiresAt).toLocaleDateString()}
+                                </Typography>
+                              </Stack>
+                            }
+                          />
+                        </ListItem>
+                      ))}
+                    </List>
+                  </Box>
+                )}
+              </Paper>
+            )}
+          </Stack>
+        </Box>
+
+        <Dialog open={createFolderOpen} onClose={handleCreateFolderClose} maxWidth="xs" fullWidth>
+          <DialogTitle>New folder</DialogTitle>
+          <DialogContent>
+            <Stack spacing={2} sx={{ pt: 1 }}>
+              <Typography variant="body2" color="text.secondary">
+                Create in: {currentPath || '/'}
+              </Typography>
+              <TextField
+                autoFocus
+                label="Folder name"
+                value={newFolderName}
+                onChange={(e) => setNewFolderName(e.target.value)}
+                placeholder="e.g. Documents"
+                fullWidth
+                required
+              />
+            </Stack>
+          </DialogContent>
+          <DialogActions>
+            <Button onClick={handleCreateFolderClose}>Cancel</Button>
+            <Button onClick={handleCreateFolderSubmit} variant="contained">
+              Create
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        <ContextMenu
             target={ctxTarget}
             position={ctxPosition}
             selectedCount={selectedItems.size}
@@ -931,8 +1221,7 @@ function App(): JSX.Element {
               {shareSuccess}
             </Alert>
           </Snackbar>
-        </Stack>
-      </Container>
+      </Box>
       <UploadDropOverlay visible={driveTab === 'my-drive' && isUploadDragActive} />
     </>
   );

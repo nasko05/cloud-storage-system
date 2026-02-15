@@ -23,7 +23,7 @@ export function UploadControlsPanel({
   onCancelUpload
 }: UploadControlsPanelProps): React.ReactElement {
   return (
-    <Paper elevation={1} sx={{ borderRadius: 3, p: 2.5 }}>
+    <Paper elevation={0} sx={{ borderRadius: 0, border: 1, borderColor: 'divider', p: 1.25 }}>
       <input
         ref={fileUploadInputRef}
         type="file"

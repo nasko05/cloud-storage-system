@@ -26,9 +26,9 @@ export const GRID_SIZE_CONFIG: Record<
   GridSize,
   { minColumnWidth: number; gap: number; mediaHeight: number; iconFontSize: number; padding: number }
 > = {
-  small: { minColumnWidth: 100, gap: 1, mediaHeight: 64, iconFontSize: 32, padding: 1 },
-  medium: { minColumnWidth: 140, gap: 2, mediaHeight: 100, iconFontSize: 48, padding: 2 },
-  large: { minColumnWidth: 180, gap: 2.5, mediaHeight: 128, iconFontSize: 56, padding: 2.5 }
+  small: { minColumnWidth: 100, gap: 0.75, mediaHeight: 64, iconFontSize: 32, padding: 0.75 },
+  medium: { minColumnWidth: 140, gap: 1, mediaHeight: 100, iconFontSize: 48, padding: 1.25 },
+  large: { minColumnWidth: 180, gap: 1.25, mediaHeight: 128, iconFontSize: 56, padding: 1.5 }
 };
 
 export interface GridLayoutProps {
@@ -175,7 +175,7 @@ export function GridLayout({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 2,
+            borderRadius: 0,
             position: 'relative',
             outline: dragOverId === folder.folderId ? '2px solid' : undefined,
             outlineColor: dragOverId === folder.folderId ? 'primary.main' : undefined,
@@ -288,7 +288,7 @@ export function GridLayout({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 2,
+            borderRadius: 0,
             position: 'relative',
             ...(isSelected(file.fileId) && {
               borderColor: 'primary.main',

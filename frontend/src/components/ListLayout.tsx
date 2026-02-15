@@ -68,11 +68,10 @@ export function ListLayout({
     : [];
 
   return (
-    <Box sx={{ width: '100%' }} onContextMenu={handleRowContextMenu}>
+    <Box sx={{ width: '100%', height: '100%', minHeight: 280 }} onContextMenu={handleRowContextMenu}>
       <DataGrid
         rows={rows}
         columns={columns}
-        autoHeight
         loading={loading}
         checkboxSelection={!!onSelectionChange}
         disableRowSelectionOnClick={!onSelectionChange}
@@ -83,6 +82,8 @@ export function ListLayout({
         onRowClick={handleRowClick}
         pageSizeOptions={[5, 10, 20]}
         sx={{
+          height: '100%',
+          borderRadius: 0,
           '& .MuiDataGrid-row.Mui-selected': {
             bgcolor: 'transparent'
           },

@@ -18,10 +18,10 @@ export function QuickAccessPanel({
   }
 
   return (
-    <Paper elevation={1} sx={{ borderRadius: 3, p: 2 }}>
+    <Paper elevation={0} sx={{ borderRadius: 0, border: 1, borderColor: 'divider', p: 1.25 }}>
       <Stack
         direction={{ xs: 'column', md: 'row' }}
-        spacing={2}
+        spacing={1.25}
         divider={<Divider orientation="vertical" flexItem />}
       >
         <Box sx={{ flex: 1 }}>
