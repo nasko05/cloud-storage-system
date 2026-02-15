@@ -4,6 +4,7 @@
  */
 import React from 'react';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import { Chip, IconButton, Stack, Tooltip } from '@mui/material';
 import type {
   GridColDef,
@@ -45,6 +46,7 @@ interface ListColumnFactoryInput {
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
   onFolderClick: (folder: DriveFolder) => void;
+  onDownloadFolder: (folder: DriveFolder) => void;
   onDeleteFolder: (folder: DriveFolder) => void;
 }
 
@@ -215,6 +217,19 @@ export class ListColumnsFactory {
             const folder = params.row.folder;
             return (
               <Stack direction="row" spacing={0.5} alignItems="center" justifyContent="flex-end">
+                <Tooltip title="Download as ZIP">
+                  <IconButton
+                    size="small"
+                    aria-label="Download folder as ZIP"
+                    onClick={(e: React.MouseEvent) => {
+                      e.stopPropagation();
+                      input.onDownloadFolder(folder);
+                    }}
+                    color="primary"
+                  >
+                    <DownloadRoundedIcon fontSize="small" />
+                  </IconButton>
+                </Tooltip>
                 <Tooltip title="Delete folder">
                   <IconButton
                     size="small"

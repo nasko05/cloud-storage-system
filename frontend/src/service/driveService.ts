@@ -5,6 +5,7 @@
 import {
   deleteFile,
   getDownloadUrl,
+  createDownloadZip,
   listFiles,
   listSharedWithMe,
   listFileShares as apiListFileShares,
@@ -108,6 +109,26 @@ export async function getFileDownloadUrl(fileId: string): Promise<string | null>
     return downloadUrl;
   } catch {
     return null;
+  }
+}
+
+export interface BulkDownloadZipResult {
+  downloadUrl?: string;
+  error?: string;
+}
+
+export async function getBulkDownloadZipUrl(
+  fileIds: string[],
+  folderPaths: string[]
+): Promise<BulkDownloadZipResult> {
+  try {
+    const result = await createDownloadZip(fileIds, folderPaths);
+    if (result.error) return { error: result.error };
+    if (!result.downloadUrl) return { error: 'No download URL returned' };
+    return { downloadUrl: result.downloadUrl };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : 'Failed to create ZIP';
+    return { error: message };
   }
 }
 

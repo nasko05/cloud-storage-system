@@ -15,7 +15,7 @@ import {
 import { FileActions } from './File';
 import type { DriveFile, DriveFolder } from '../types/drive';
 import { formatFileSize } from '../types/drive';
-import { FolderIcon } from './Folder';
+import { FolderIcon, FolderActions } from './Folder';
 import { DynamicRenderedIcon } from './DynamicRenderedIcon';
 import { ImageThumbnail } from './ImageThumbnail';
 import { isImageFilename } from '../service/fileUtils';
@@ -26,9 +26,9 @@ export const GRID_SIZE_CONFIG: Record<
   GridSize,
   { minColumnWidth: number; gap: number; mediaHeight: number; iconFontSize: number; padding: number }
 > = {
-  small: { minColumnWidth: 100, gap: 1, mediaHeight: 64, iconFontSize: 32, padding: 1 },
-  medium: { minColumnWidth: 140, gap: 2, mediaHeight: 100, iconFontSize: 48, padding: 2 },
-  large: { minColumnWidth: 180, gap: 2.5, mediaHeight: 128, iconFontSize: 56, padding: 2.5 }
+  small: { minColumnWidth: 100, gap: 0.75, mediaHeight: 64, iconFontSize: 32, padding: 0.75 },
+  medium: { minColumnWidth: 140, gap: 1, mediaHeight: 100, iconFontSize: 48, padding: 1.25 },
+  large: { minColumnWidth: 180, gap: 1.25, mediaHeight: 128, iconFontSize: 56, padding: 1.5 }
 };
 
 export interface GridLayoutProps {
@@ -39,6 +39,7 @@ export interface GridLayoutProps {
   onDownload: (file: DriveFile) => void;
   onDelete: (file: DriveFile) => void;
   onFolderClick?: (folder: DriveFolder) => void;
+  onDownloadFolder?: (folder: DriveFolder) => void;
   onDeleteFolder?: (folder: DriveFolder) => void;
   onContextMenu?: (
     e: React.MouseEvent,
@@ -49,6 +50,7 @@ export interface GridLayoutProps {
     targetFolder: DriveFolder,
     dragData: { type: 'file' | 'folder'; id: string }
   ) => void;
+  onExternalDropUpload?: (targetFolder: DriveFolder, dataTransfer: DataTransfer) => void;
   /** Required for image thumbnails; if provided, image files will show a preview. */
   getDownloadUrl?: (fileId: string) => Promise<string | undefined | null>;
   /** Card size in the grid. */
@@ -63,10 +65,12 @@ export function GridLayout({
   onDownload,
   onDelete,
   onFolderClick,
+  onDownloadFolder,
   onDeleteFolder,
   onContextMenu,
   onSelectionChange,
   onDrop,
+  onExternalDropUpload,
   getDownloadUrl,
   gridSize = 'medium'
 }: GridLayoutProps): React.ReactElement {
@@ -123,14 +127,21 @@ export function GridLayout({
     folder: DriveFolder
   ): void => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverId(null);
     try {
       const raw = e.dataTransfer.getData('application/x-drive-item');
-      if (!raw) return;
-      const data = JSON.parse(raw) as { type: 'file' | 'folder'; id: string };
-      // Don't drop a folder on itself
-      if (data.type === 'folder' && data.id === folder.folderId) return;
-      onDrop?.(folder, data);
+      if (raw) {
+        const data = JSON.parse(raw) as { type: 'file' | 'folder'; id: string };
+        // Don't drop a folder on itself
+        if (data.type === 'folder' && data.id === folder.folderId) return;
+        onDrop?.(folder, data);
+        return;
+      }
+
+      if (e.dataTransfer.files.length > 0) {
+        onExternalDropUpload?.(folder, e.dataTransfer);
+      }
     } catch {
       // ignore malformed drag data
     }
@@ -164,7 +175,7 @@ export function GridLayout({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 2,
+            borderRadius: 0,
             position: 'relative',
             outline: dragOverId === folder.folderId ? '2px solid' : undefined,
             outlineColor: dragOverId === folder.folderId ? 'primary.main' : undefined,
@@ -197,7 +208,6 @@ export function GridLayout({
             />
           )}
           <CardActionArea
-            onClick={() => onFolderClick?.(folder)}
             sx={{
               flex: 1,
               display: 'flex',
@@ -208,6 +218,7 @@ export function GridLayout({
               '&.Mui-focusVisible': { outline: '2px solid', outlineColor: 'primary.main' },
               '&:hover': { backgroundColor: 'transparent' }
             }}
+            onClick={() => onFolderClick?.(folder)}
           >
             <Box
               sx={{
@@ -246,6 +257,20 @@ export function GridLayout({
               </Typography>
             )}
           </CardActionArea>
+          {onDownloadFolder && (
+            <Stack
+              direction="row"
+              justifyContent="center"
+              spacing={0.5}
+              sx={{ py: 1, px: 1, borderTop: 1, borderColor: 'divider' }}
+            >
+              <FolderActions
+                folder={folder}
+                onDownload={onDownloadFolder}
+                onDelete={onDeleteFolder}
+              />
+            </Stack>
+          )}
         </Card>
       ))}
       {files.map((file) => (
@@ -263,7 +288,7 @@ export function GridLayout({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 2,
+            borderRadius: 0,
             position: 'relative',
             ...(isSelected(file.fileId) && {
               borderColor: 'primary.main',

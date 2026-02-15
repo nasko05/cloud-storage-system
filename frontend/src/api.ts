@@ -19,8 +19,18 @@ interface UploadUrlResult extends ApiResult {
   fileId?: string;
 }
 
+export interface UploadFileOptions {
+  signal?: AbortSignal;
+  onProgress?: (uploadedBytes: number, totalBytes: number) => void;
+}
+
 interface DownloadUrlResult extends ApiResult {
   downloadUrl?: string;
+}
+
+interface CreateDownloadZipResult extends ApiResult {
+  downloadUrl?: string;
+  expiresIn?: number;
 }
 
 interface CreateFolderResult extends ApiResult {
@@ -205,7 +215,8 @@ const getUploadUrl = async (
 
 export const uploadFile = async (
   file: File,
-  folderPath?: string
+  folderPath?: string,
+  options?: UploadFileOptions
 ): Promise<string> => {
   let contentType = file.type || 'application/octet-stream';
 
@@ -223,20 +234,70 @@ export const uploadFile = async (
     throw new Error(error || 'Upload URL not available');
   }
 
-  const uploadResponse = await fetch(uploadUrl, {
-    method: 'PUT',
-    body: file
-  });
+  await new Promise<void>((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
 
-  if (!uploadResponse.ok) {
-    throw new Error(`Upload failed: ${uploadResponse.status}`);
-  }
+    const cleanupSignal = (): void => {
+      if (options?.signal) {
+        options.signal.removeEventListener('abort', handleAbortSignal);
+      }
+    };
+
+    const fail = (err: Error): void => {
+      cleanupSignal();
+      reject(err);
+    };
+
+    const handleAbortSignal = (): void => {
+      xhr.abort();
+    };
+
+    xhr.open('PUT', uploadUrl);
+
+    xhr.upload.onprogress = (event: ProgressEvent<EventTarget>): void => {
+      const total = event.lengthComputable ? event.total : file.size;
+      options?.onProgress?.(event.loaded, total);
+    };
+
+    xhr.onload = (): void => {
+      cleanupSignal();
+      if (xhr.status >= 200 && xhr.status < 300) {
+        resolve();
+      } else {
+        fail(new Error(`Upload failed: ${xhr.status}`));
+      }
+    };
+
+    xhr.onerror = (): void => {
+      fail(new Error('Upload failed due to a network error'));
+    };
+
+    xhr.onabort = (): void => {
+      fail(new Error('Upload canceled'));
+    };
+
+    if (options?.signal) {
+      if (options.signal.aborted) {
+        xhr.abort();
+        return;
+      }
+      options.signal.addEventListener('abort', handleAbortSignal, { once: true });
+    }
+
+    xhr.send(file);
+  });
 
   return fileId;
 };
 
 export const getDownloadUrl = async (fileId: string): Promise<DownloadUrlResult> =>
   DriveApiClient.call<DownloadUrlResult>('/download', { fileId });
+
+export const createDownloadZip = async (
+  fileIds: string[],
+  folderPaths: string[]
+): Promise<CreateDownloadZipResult> =>
+  DriveApiClient.call<CreateDownloadZipResult>('/zip', { fileIds, folderPaths });
 
 export const deleteFile = async (fileId: string): Promise<ApiResult> =>
   DriveApiClient.call<ApiResult>('/upload', { action: 'delete', fileId });
