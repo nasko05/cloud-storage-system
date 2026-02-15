@@ -19,6 +19,7 @@ export interface UseDriveActionsInput {
   setLoading: React.Dispatch<React.SetStateAction<boolean>>;
   setError: React.Dispatch<React.SetStateAction<string>>;
   loadFiles: (preserveError?: boolean) => Promise<void>;
+  onFileAccess?: (file: DriveFile) => void;
 }
 
 export interface UseDriveActionsReturn {
@@ -43,12 +44,14 @@ export function useDriveActions({
   setSelectedItems,
   setLoading,
   setError,
-  loadFiles
+  loadFiles,
+  onFileAccess
 }: UseDriveActionsInput): UseDriveActionsReturn {
 
   async function handleDownload(file: DriveFile): Promise<void> {
     const url = await getFileDownloadUrl(file.fileId);
     if (url) {
+      onFileAccess?.(file);
       window.open(url, '_blank', 'noopener,noreferrer');
     } else {
       setError('Download failed');

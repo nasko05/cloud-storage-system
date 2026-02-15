@@ -50,6 +50,7 @@ export interface GridLayoutProps {
     targetFolder: DriveFolder,
     dragData: { type: 'file' | 'folder'; id: string }
   ) => void;
+  onExternalDropUpload?: (targetFolder: DriveFolder, dataTransfer: DataTransfer) => void;
   /** Required for image thumbnails; if provided, image files will show a preview. */
   getDownloadUrl?: (fileId: string) => Promise<string | undefined | null>;
   /** Card size in the grid. */
@@ -69,6 +70,7 @@ export function GridLayout({
   onContextMenu,
   onSelectionChange,
   onDrop,
+  onExternalDropUpload,
   getDownloadUrl,
   gridSize = 'medium'
 }: GridLayoutProps): React.ReactElement {
@@ -125,14 +127,21 @@ export function GridLayout({
     folder: DriveFolder
   ): void => {
     e.preventDefault();
+    e.stopPropagation();
     setDragOverId(null);
     try {
       const raw = e.dataTransfer.getData('application/x-drive-item');
-      if (!raw) return;
-      const data = JSON.parse(raw) as { type: 'file' | 'folder'; id: string };
-      // Don't drop a folder on itself
-      if (data.type === 'folder' && data.id === folder.folderId) return;
-      onDrop?.(folder, data);
+      if (raw) {
+        const data = JSON.parse(raw) as { type: 'file' | 'folder'; id: string };
+        // Don't drop a folder on itself
+        if (data.type === 'folder' && data.id === folder.folderId) return;
+        onDrop?.(folder, data);
+        return;
+      }
+
+      if (e.dataTransfer.files.length > 0) {
+        onExternalDropUpload?.(folder, e.dataTransfer);
+      }
     } catch {
       // ignore malformed drag data
     }
