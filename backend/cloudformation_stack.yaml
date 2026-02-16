@@ -42,8 +42,8 @@ Resources:
   #############################################################################
   CloudStorageBucket:
     Type: AWS::S3::Bucket
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       BucketName: !Sub "${EnvironmentName}-cloudstorage-${AWS::AccountId}-${AWS::Region}"
       PublicAccessBlockConfiguration:
@@ -103,8 +103,8 @@ Resources:
   #############################################################################
   MetadataTable:
     Type: AWS::DynamoDB::Table
-    DeletionPolicy: Retain
-    UpdateReplacePolicy: Retain
+    DeletionPolicy: Delete
+    UpdateReplacePolicy: Delete
     Properties:
       TableName: !Sub "${EnvironmentName}-metadata-table"
       BillingMode: PAY_PER_REQUEST
