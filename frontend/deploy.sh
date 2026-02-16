@@ -33,6 +33,7 @@ aws cloudformation deploy \
   --stack-name "$STACK_NAME" \
   --region "$REGION" \
   --profile "$PROFILE" \
+  --capabilities CAPABILITY_IAM \
   --parameter-overrides EnvironmentName="$ENV_NAME" \
   --no-fail-on-empty-changeset
 
