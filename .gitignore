@@ -1,5 +1,7 @@
 .DS_Store
-docs/
+docs/*
+!docs/LAMBDA_REFACTOR_PLAN.md
+!docs/BACKEND_TECH_DEBT.md
 
 # Local AWS profile (real config belongs in ~/.aws/config)
 /profile

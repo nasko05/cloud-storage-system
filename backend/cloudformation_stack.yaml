@@ -13,8 +13,8 @@ Parameters:
   
   AllowedOrigins:
     Type: String
-    Default: "*"
-    Description: CORS allowed origins. Use specific domain in production (e.g., https://myapp.example.com).
+    Default: "http://localhost:3000"
+    Description: CORS allowed origin. Set per environment (e.g., https://app.example.com).
   
   PresignedUrlExpirySeconds:
     Type: Number
@@ -35,6 +35,20 @@ Parameters:
     MinValue: 1
     MaxValue: 365
     Description: Number of days before share links auto-expire (TTL). Set to 365 for long-term shares.
+
+  IdempotencyTtlSeconds:
+    Type: Number
+    Default: 86400
+    MinValue: 60
+    MaxValue: 604800
+    Description: Idempotency dedupe window in seconds (default 24h).
+
+  ArchiveJobTtlDays:
+    Type: Number
+    Default: 1
+    MinValue: 1
+    MaxValue: 7
+    Description: Archive job metadata retention in days.
 
 Resources:
   #############################################################################
@@ -93,7 +107,7 @@ Resources:
               - DELETE
               - HEAD
             AllowedOrigins:
-              - "*"
+              - !Ref AllowedOrigins
             ExposedHeaders:
               - ETag
             MaxAge: 3600
@@ -101,12 +115,12 @@ Resources:
   #############################################################################
   # DYNAMODB TABLE - Metadata & ACLs (Single Table Design with TTL)
   #############################################################################
-  MetadataTable:
+  MetadataTableV2:
     Type: AWS::DynamoDB::Table
     DeletionPolicy: Delete
     UpdateReplacePolicy: Delete
     Properties:
-      TableName: !Sub "${EnvironmentName}-metadata-table"
+      TableName: !Sub "${EnvironmentName}-metadata-table-v2"
       BillingMode: PAY_PER_REQUEST
       SSESpecification:
         SSEEnabled: true
@@ -125,6 +139,18 @@ Resources:
           AttributeType: S
         - AttributeName: gsi1sk
           AttributeType: S
+        - AttributeName: gsi2pk
+          AttributeType: S
+        - AttributeName: gsi2sk
+          AttributeType: S
+        - AttributeName: gsi3pk
+          AttributeType: S
+        - AttributeName: gsi3sk
+          AttributeType: S
+        - AttributeName: gsi4pk
+          AttributeType: S
+        - AttributeName: gsi4sk
+          AttributeType: S
       KeySchema:
         - AttributeName: pk
           KeyType: HASH
@@ -139,9 +165,49 @@ Resources:
               KeyType: RANGE
           Projection:
             ProjectionType: ALL
+        - IndexName: GSI2
+          KeySchema:
+            - AttributeName: gsi2pk
+              KeyType: HASH
+            - AttributeName: gsi2sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI3
+          KeySchema:
+            - AttributeName: gsi3pk
+              KeyType: HASH
+            - AttributeName: gsi3sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
+        - IndexName: GSI4
+          KeySchema:
+            - AttributeName: gsi4pk
+              KeyType: HASH
+            - AttributeName: gsi4sk
+              KeyType: RANGE
+          Projection:
+            ProjectionType: ALL
       Tags:
         - Key: Environment
           Value: !Ref EnvironmentName
+
+  ArchiveJobDLQ:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${EnvironmentName}-archive-jobs-dlq"
+      MessageRetentionPeriod: 1209600
+
+  ArchiveJobQueue:
+    Type: AWS::SQS::Queue
+    Properties:
+      QueueName: !Sub "${EnvironmentName}-archive-jobs"
+      VisibilityTimeout: 900
+      MessageRetentionPeriod: 86400
+      RedrivePolicy:
+        deadLetterTargetArn: !GetAtt ArchiveJobDLQ.Arn
+        maxReceiveCount: 3
 
   #############################################################################
   # S3 AUTO-CLEANUP - Empties bucket before stack deletion
@@ -376,37 +442,61 @@ Resources:
   #############################################################################
   # CLOUDWATCH LOG GROUPS - With Retention
   #############################################################################
-  UploadFunctionLogGroup:
+  DriveFilesFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-upload-fn"
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-files-fn"
       RetentionInDays: !Ref LogRetentionDays
 
-  DownloadFunctionLogGroup:
+  DriveFoldersFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-download-fn"
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-folders-fn"
       RetentionInDays: !Ref LogRetentionDays
 
-  PublicDownloadFunctionLogGroup:
+  DriveSharesFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-public-download-fn"
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-shares-fn"
       RetentionInDays: !Ref LogRetentionDays
 
-  ZipDownloadFunctionLogGroup:
+  DrivePublicLinksAdminFunctionLogGroup:
     Type: AWS::Logs::LogGroup
     Properties:
-      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-zip-download-fn"
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-public-links-admin-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
+  DriveDownloadV2FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-download-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
+  DrivePublicDownloadV2FunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-public-download-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
+  DriveArchiveApiFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-archive-api-fn"
+      RetentionInDays: !Ref LogRetentionDays
+
+  DriveArchiveWorkerFunctionLogGroup:
+    Type: AWS::Logs::LogGroup
+    Properties:
+      LogGroupName: !Sub "/aws/lambda/${EnvironmentName}-drive-archive-worker-fn"
       RetentionInDays: !Ref LogRetentionDays
 
   #############################################################################
   # IAM ROLES - Least Privilege per Lambda
   #############################################################################
-  UploadLambdaRole:
+  DriveFilesLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${EnvironmentName}-upload-lambda-role"
+      RoleName: !Sub "${EnvironmentName}-drive-files-lambda-role"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -415,7 +505,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: UploadLambdaPolicy
+        - PolicyName: DriveFilesLambdaPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -424,20 +514,20 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-upload-fn:*"
-              - Sid: S3UploadAccess
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-files-fn:*"
+              - Sid: S3FilesAccess
                 Effect: Allow
                 Action:
                   - s3:PutObject
                   - s3:GetObject
-                  - s3:ListBucket
                   - s3:DeleteObject
                   - s3:AbortMultipartUpload
                   - s3:ListMultipartUploadParts
+                  - s3:ListBucket
                 Resource:
                   - !GetAtt CloudStorageBucket.Arn
                   - !Sub "${CloudStorageBucket.Arn}/*"
-              - Sid: DynamoDBWriteAccess
+              - Sid: DynamoDbV2Access
                 Effect: Allow
                 Action:
                   - dynamodb:PutItem
@@ -447,19 +537,13 @@ Resources:
                   - dynamodb:Query
                   - dynamodb:BatchWriteItem
                 Resource:
-                  - !GetAtt MetadataTable.Arn
-                  - !Sub "${MetadataTable.Arn}/index/*"
-              - Sid: CognitoLookup
-                Effect: Allow
-                Action:
-                  - cognito-idp:AdminGetUser
-                Resource:
-                  - !GetAtt UserPool.Arn
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
 
-  DownloadLambdaRole:
+  DriveFoldersLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${EnvironmentName}-download-lambda-role"
+      RoleName: !Sub "${EnvironmentName}-drive-folders-lambda-role"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -468,7 +552,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: DownloadLambdaPolicy
+        - PolicyName: DriveFoldersLambdaPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -477,7 +561,116 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-download-fn:*"
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-folders-fn:*"
+              - Sid: S3DeleteAccess
+                Effect: Allow
+                Action:
+                  - s3:DeleteObject
+                Resource:
+                  - !Sub "${CloudStorageBucket.Arn}/*"
+              - Sid: DynamoDbV2Access
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:BatchWriteItem
+                Resource:
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
+
+  DriveSharesLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-drive-shares-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DriveSharesLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-shares-fn:*"
+              - Sid: DynamoDbV2Access
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
+
+  DrivePublicLinksAdminLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-drive-public-links-admin-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DrivePublicLinksAdminLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-public-links-admin-fn:*"
+              - Sid: DynamoDbV2Access
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:DeleteItem
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
+
+  DriveDownloadV2LambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-drive-download-v2-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DriveDownloadV2LambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-download-fn:*"
               - Sid: S3DownloadAccess
                 Effect: Allow
                 Action:
@@ -486,19 +679,19 @@ Resources:
                 Resource:
                   - !GetAtt CloudStorageBucket.Arn
                   - !Sub "${CloudStorageBucket.Arn}/*"
-              - Sid: DynamoDBReadAccess
+              - Sid: DynamoDbV2ReadAccess
                 Effect: Allow
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:Query
                 Resource:
-                  - !GetAtt MetadataTable.Arn
-                  - !Sub "${MetadataTable.Arn}/index/*"
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
 
-  PublicDownloadLambdaRole:
+  DrivePublicDownloadV2LambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${EnvironmentName}-public-download-lambda-role"
+      RoleName: !Sub "${EnvironmentName}-drive-public-download-v2-lambda-role"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -507,7 +700,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: PublicDownloadLambdaPolicy
+        - PolicyName: DrivePublicDownloadV2LambdaPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -516,25 +709,73 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-public-download-fn:*"
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-public-download-fn:*"
               - Sid: S3DownloadAccess
+                Effect: Allow
+                Action:
+                  - s3:GetObject
+                  - s3:ListBucket
+                Resource:
+                  - !GetAtt CloudStorageBucket.Arn
+                  - !Sub "${CloudStorageBucket.Arn}/*"
+              - Sid: DynamoDbV2Access
+                Effect: Allow
+                Action:
+                  - dynamodb:GetItem
+                  - dynamodb:Query
+                  - dynamodb:UpdateItem
+                Resource:
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
+
+  DriveArchiveApiLambdaRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub "${EnvironmentName}-drive-archive-api-lambda-role"
+      AssumeRolePolicyDocument:
+        Version: "2012-10-17"
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: lambda.amazonaws.com
+            Action: sts:AssumeRole
+      Policies:
+        - PolicyName: DriveArchiveApiLambdaPolicy
+          PolicyDocument:
+            Version: "2012-10-17"
+            Statement:
+              - Sid: CloudWatchLogs
+                Effect: Allow
+                Action:
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-archive-api-fn:*"
+              - Sid: DynamoDbV2Access
+                Effect: Allow
+                Action:
+                  - dynamodb:PutItem
+                  - dynamodb:GetItem
+                  - dynamodb:UpdateItem
+                  - dynamodb:Query
+                Resource:
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
+              - Sid: S3ReadAccess
                 Effect: Allow
                 Action:
                   - s3:GetObject
                 Resource:
                   - !Sub "${CloudStorageBucket.Arn}/*"
-              - Sid: DynamoDBAccess
+              - Sid: SqsSendMessage
                 Effect: Allow
                 Action:
-                  - dynamodb:GetItem
-                  - dynamodb:UpdateItem
-                Resource:
-                  - !GetAtt MetadataTable.Arn
+                  - sqs:SendMessage
+                Resource: !GetAtt ArchiveJobQueue.Arn
 
-  ZipDownloadLambdaRole:
+  DriveArchiveWorkerLambdaRole:
     Type: AWS::IAM::Role
     Properties:
-      RoleName: !Sub "${EnvironmentName}-zip-download-lambda-role"
+      RoleName: !Sub "${EnvironmentName}-drive-archive-worker-lambda-role"
       AssumeRolePolicyDocument:
         Version: "2012-10-17"
         Statement:
@@ -543,7 +784,7 @@ Resources:
               Service: lambda.amazonaws.com
             Action: sts:AssumeRole
       Policies:
-        - PolicyName: ZipDownloadLambdaPolicy
+        - PolicyName: DriveArchiveWorkerLambdaPolicy
           PolicyDocument:
             Version: "2012-10-17"
             Statement:
@@ -552,103 +793,196 @@ Resources:
                 Action:
                   - logs:CreateLogStream
                   - logs:PutLogEvents
-                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-zip-download-fn:*"
-              - Sid: S3Access
+                Resource: !Sub "arn:aws:logs:${AWS::Region}:${AWS::AccountId}:log-group:/aws/lambda/${EnvironmentName}-drive-archive-worker-fn:*"
+              - Sid: S3ArchiveAccess
                 Effect: Allow
                 Action:
                   - s3:GetObject
                   - s3:PutObject
                 Resource:
                   - !Sub "${CloudStorageBucket.Arn}/*"
-              - Sid: DynamoDBReadAccess
+              - Sid: SqsPollAccess
+                Effect: Allow
+                Action:
+                  - sqs:ReceiveMessage
+                  - sqs:DeleteMessage
+                  - sqs:ChangeMessageVisibility
+                  - sqs:GetQueueAttributes
+                Resource: !GetAtt ArchiveJobQueue.Arn
+              - Sid: DynamoDbV2Access
                 Effect: Allow
                 Action:
                   - dynamodb:GetItem
                   - dynamodb:Query
+                  - dynamodb:UpdateItem
                 Resource:
-                  - !GetAtt MetadataTable.Arn
-                  - !Sub "${MetadataTable.Arn}/index/*"
+                  - !GetAtt MetadataTableV2.Arn
+                  - !Sub "${MetadataTableV2.Arn}/index/*"
 
   #############################################################################
   # LAMBDA FUNCTIONS
   #############################################################################
-  UploadFunction:
+  DriveFilesFunction:
     Type: AWS::Lambda::Function
-    DependsOn: UploadFunctionLogGroup
+    DependsOn: DriveFilesFunctionLogGroup
     Properties:
-      FunctionName: !Sub "${EnvironmentName}-upload-fn"
+      FunctionName: !Sub "${EnvironmentName}-drive-files-fn"
       Runtime: python3.11
       Handler: handler.handler
-      Role: !GetAtt UploadLambdaRole.Arn
+      Role: !GetAtt DriveFilesLambdaRole.Arn
       Timeout: 30
       MemorySize: 256
       Environment:
         Variables:
           BUCKET_NAME: !Ref CloudStorageBucket
-          METADATA_TABLE_NAME: !Ref MetadataTable
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
+          IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  DriveFoldersFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DriveFoldersFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-drive-folders-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt DriveFoldersLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
+          IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  DriveSharesFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DriveSharesFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-drive-shares-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt DriveSharesLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
           SHARE_EXPIRY_DAYS: !Ref ShareExpiryDays
-          USER_POOL_ID: !Ref UserPool
+          IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
       Code:
         ZipFile: |
           def handler(event, context):
               return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
 
-  DownloadFunction:
+  DrivePublicLinksAdminFunction:
     Type: AWS::Lambda::Function
-    DependsOn: DownloadFunctionLogGroup
+    DependsOn: DrivePublicLinksAdminFunctionLogGroup
     Properties:
-      FunctionName: !Sub "${EnvironmentName}-download-fn"
+      FunctionName: !Sub "${EnvironmentName}-drive-public-links-admin-fn"
       Runtime: python3.11
       Handler: handler.handler
-      Role: !GetAtt DownloadLambdaRole.Arn
+      Role: !GetAtt DrivePublicLinksAdminLambdaRole.Arn
       Timeout: 30
       MemorySize: 256
       Environment:
         Variables:
           BUCKET_NAME: !Ref CloudStorageBucket
-          METADATA_TABLE_NAME: !Ref MetadataTable
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
+          SHARE_EXPIRY_DAYS: !Ref ShareExpiryDays
+          IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  DriveDownloadV2Function:
+    Type: AWS::Lambda::Function
+    DependsOn: DriveDownloadV2FunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-drive-download-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt DriveDownloadV2LambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
       Code:
         ZipFile: |
           def handler(event, context):
               return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
 
-  PublicDownloadFunction:
+  DrivePublicDownloadV2Function:
     Type: AWS::Lambda::Function
-    DependsOn: PublicDownloadFunctionLogGroup
+    DependsOn: DrivePublicDownloadV2FunctionLogGroup
     Properties:
-      FunctionName: !Sub "${EnvironmentName}-public-download-fn"
+      FunctionName: !Sub "${EnvironmentName}-drive-public-download-fn"
       Runtime: python3.11
       Handler: handler.handler
-      Role: !GetAtt PublicDownloadLambdaRole.Arn
+      Role: !GetAtt DrivePublicDownloadV2LambdaRole.Arn
       Timeout: 30
       MemorySize: 256
       Environment:
         Variables:
           BUCKET_NAME: !Ref CloudStorageBucket
-          METADATA_TABLE_NAME: !Ref MetadataTable
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
       Code:
         ZipFile: |
           def handler(event, context):
               return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
 
-  ZipDownloadFunction:
+  DriveArchiveApiFunction:
     Type: AWS::Lambda::Function
-    DependsOn: ZipDownloadFunctionLogGroup
+    DependsOn: DriveArchiveApiFunctionLogGroup
     Properties:
-      FunctionName: !Sub "${EnvironmentName}-zip-download-fn"
+      FunctionName: !Sub "${EnvironmentName}-drive-archive-api-fn"
       Runtime: python3.11
       Handler: handler.handler
-      Role: !GetAtt ZipDownloadLambdaRole.Arn
+      Role: !GetAtt DriveArchiveApiLambdaRole.Arn
+      Timeout: 30
+      MemorySize: 256
+      Environment:
+        Variables:
+          BUCKET_NAME: !Ref CloudStorageBucket
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
+          PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
+          IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
+          ARCHIVE_JOB_TTL_DAYS: !Ref ArchiveJobTtlDays
+          ARCHIVE_QUEUE_URL: !Ref ArchiveJobQueue
+      Code:
+        ZipFile: |
+          def handler(event, context):
+              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+
+  DriveArchiveWorkerFunction:
+    Type: AWS::Lambda::Function
+    DependsOn: DriveArchiveWorkerFunctionLogGroup
+    Properties:
+      FunctionName: !Sub "${EnvironmentName}-drive-archive-worker-fn"
+      Runtime: python3.11
+      Handler: handler.handler
+      Role: !GetAtt DriveArchiveWorkerLambdaRole.Arn
       Timeout: 300
-      MemorySize: 512
+      MemorySize: 1024
       Environment:
         Variables:
           BUCKET_NAME: !Ref CloudStorageBucket
-          METADATA_TABLE_NAME: !Ref MetadataTable
-          PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
+          METADATA_TABLE_NAME: !Ref MetadataTableV2
+          ARCHIVE_JOB_TTL_DAYS: !Ref ArchiveJobTtlDays
       Code:
         ZipFile: |
           def handler(event, context):
@@ -670,11 +1004,14 @@ Resources:
           - GET
           - POST
           - PUT
+          - PATCH
           - DELETE
           - OPTIONS
         AllowHeaders:
           - Content-Type
           - Authorization
+          - Idempotency-Key
+          - X-Correlation-Id
           - X-Amz-Date
           - X-Api-Key
         ExposeHeaders:
@@ -717,127 +1054,318 @@ Resources:
   #############################################################################
   # API INTEGRATIONS
   #############################################################################
-  UploadIntegration:
+  DriveFilesIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref HttpApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !GetAtt UploadFunction.Arn
+      IntegrationUri: !GetAtt DriveFilesFunction.Arn
       PayloadFormatVersion: "2.0"
 
-  DownloadIntegration:
+  DriveFoldersIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref HttpApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !GetAtt DownloadFunction.Arn
+      IntegrationUri: !GetAtt DriveFoldersFunction.Arn
       PayloadFormatVersion: "2.0"
 
-  PublicDownloadIntegration:
+  DriveSharesIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref HttpApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !GetAtt PublicDownloadFunction.Arn
+      IntegrationUri: !GetAtt DriveSharesFunction.Arn
       PayloadFormatVersion: "2.0"
 
-  ZipDownloadIntegration:
+  DrivePublicLinksAdminIntegration:
     Type: AWS::ApiGatewayV2::Integration
     Properties:
       ApiId: !Ref HttpApi
       IntegrationType: AWS_PROXY
-      IntegrationUri: !GetAtt ZipDownloadFunction.Arn
+      IntegrationUri: !GetAtt DrivePublicLinksAdminFunction.Arn
+      PayloadFormatVersion: "2.0"
+
+  DriveDownloadV2Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt DriveDownloadV2Function.Arn
+      PayloadFormatVersion: "2.0"
+
+  DrivePublicDownloadV2Integration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt DrivePublicDownloadV2Function.Arn
+      PayloadFormatVersion: "2.0"
+
+  DriveArchiveApiIntegration:
+    Type: AWS::ApiGatewayV2::Integration
+    Properties:
+      ApiId: !Ref HttpApi
+      IntegrationType: AWS_PROXY
+      IntegrationUri: !GetAtt DriveArchiveApiFunction.Arn
       PayloadFormatVersion: "2.0"
 
   #############################################################################
   # API ROUTES
   #############################################################################
-  UploadRoute:
+  V2FilesUploadRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "POST /upload"
+      RouteKey: "POST /v2/files/uploads"
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
-      Target: !Sub "integrations/${UploadIntegration}"
+      Target: !Sub "integrations/${DriveFilesIntegration}"
 
-  DownloadRoute:
+  V2FilesPatchRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "POST /download"
+      RouteKey: "PATCH /v2/files/{fileId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
-      Target: !Sub "integrations/${DownloadIntegration}"
+      Target: !Sub "integrations/${DriveFilesIntegration}"
 
-  ZipDownloadRoute:
+  V2FilesDeleteRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "POST /zip"
+      RouteKey: "DELETE /v2/files/{fileId}"
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
-      Target: !Sub "integrations/${ZipDownloadIntegration}"
+      Target: !Sub "integrations/${DriveFilesIntegration}"
 
-  ListFilesRoute:
+  V2FolderChildrenRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "POST /files"
+      RouteKey: "GET /v2/folders/{folderId}/children"
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
-      Target: !Sub "integrations/${UploadIntegration}"
+      Target: !Sub "integrations/${DriveFoldersIntegration}"
 
-  PublicDownloadGetRoute:
+  V2FolderCreateRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "GET /public/{token}"
+      RouteKey: "POST /v2/folders/{folderId}/folders"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveFoldersIntegration}"
+
+  V2FolderPatchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "PATCH /v2/folders/{folderId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveFoldersIntegration}"
+
+  V2FolderDeleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "DELETE /v2/folders/{folderId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveFoldersIntegration}"
+
+  V2SharesInboundRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /v2/shares/inbound"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveSharesIntegration}"
+
+  V2FileSharesListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /v2/files/{fileId}/shares"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveSharesIntegration}"
+
+  V2FileSharesPutRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "PUT /v2/files/{fileId}/shares/{principal}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveSharesIntegration}"
+
+  V2FileSharesPatchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "PATCH /v2/files/{fileId}/shares/{principal}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveSharesIntegration}"
+
+  V2FileSharesDeleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "DELETE /v2/files/{fileId}/shares/{principal}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveSharesIntegration}"
+
+  V2PublicLinksCreateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /v2/files/{fileId}/public-links"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DrivePublicLinksAdminIntegration}"
+
+  V2PublicLinksListRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /v2/files/{fileId}/public-links"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DrivePublicLinksAdminIntegration}"
+
+  V2PublicLinksPatchRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "PATCH /v2/public-links/{token}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DrivePublicLinksAdminIntegration}"
+
+  V2PublicLinksDeleteRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "DELETE /v2/public-links/{token}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DrivePublicLinksAdminIntegration}"
+
+  V2FileDownloadRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /v2/download/files/{fileId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveDownloadV2Integration}"
+
+  V2ArchiveCreateRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /v2/download/archives"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveArchiveApiIntegration}"
+
+  V2ArchiveStatusRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /v2/download/archives/{archiveJobId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveArchiveApiIntegration}"
+
+  V2PublicLinkMetadataRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "GET /v2/public-links/{token}"
       AuthorizationType: NONE
-      Target: !Sub "integrations/${PublicDownloadIntegration}"
+      Target: !Sub "integrations/${DrivePublicDownloadV2Integration}"
 
-  PublicDownloadPostRoute:
+  V2PublicLinkDownloadRoute:
     Type: AWS::ApiGatewayV2::Route
     Properties:
       ApiId: !Ref HttpApi
-      RouteKey: "POST /public/{token}"
+      RouteKey: "POST /v2/public-links/{token}/download"
       AuthorizationType: NONE
-      Target: !Sub "integrations/${PublicDownloadIntegration}"
+      Target: !Sub "integrations/${DrivePublicDownloadV2Integration}"
 
   #############################################################################
   # LAMBDA PERMISSIONS
   #############################################################################
-  UploadFunctionPermission:
+  DriveFilesFunctionPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref UploadFunction
+      FunctionName: !Ref DriveFilesFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
 
-  DownloadFunctionPermission:
+  DriveFoldersFunctionPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref DownloadFunction
+      FunctionName: !Ref DriveFoldersFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
 
-  PublicDownloadFunctionPermission:
+  DriveSharesFunctionPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref PublicDownloadFunction
+      FunctionName: !Ref DriveSharesFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
 
-  ZipDownloadFunctionPermission:
+  DrivePublicLinksAdminFunctionPermission:
     Type: AWS::Lambda::Permission
     Properties:
-      FunctionName: !Ref ZipDownloadFunction
+      FunctionName: !Ref DrivePublicLinksAdminFunction
       Action: lambda:InvokeFunction
       Principal: apigateway.amazonaws.com
       SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  DriveDownloadV2FunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DriveDownloadV2Function
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  DrivePublicDownloadV2FunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DrivePublicDownloadV2Function
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  DriveArchiveApiFunctionPermission:
+    Type: AWS::Lambda::Permission
+    Properties:
+      FunctionName: !Ref DriveArchiveApiFunction
+      Action: lambda:InvokeFunction
+      Principal: apigateway.amazonaws.com
+      SourceArn: !Sub "arn:aws:execute-api:${AWS::Region}:${AWS::AccountId}:${HttpApi}/*"
+
+  DriveArchiveWorkerEventSourceMapping:
+    Type: AWS::Lambda::EventSourceMapping
+    Properties:
+      BatchSize: 1
+      Enabled: true
+      EventSourceArn: !GetAtt ArchiveJobQueue.Arn
+      FunctionName: !Ref DriveArchiveWorkerFunction
 
 #############################################################################
 # OUTPUTS
@@ -859,15 +1387,17 @@ Outputs:
     Description: S3 bucket ARN
     Value: !GetAtt CloudStorageBucket.Arn
 
-  DynamoDBTableName:
-    Description: DynamoDB table name for metadata
-    Value: !Ref MetadataTable
-    Export:
-      Name: !Sub "${EnvironmentName}-DynamoDBTableName"
+  MetadataTableV2Name:
+    Description: DynamoDB v2 metadata table name
+    Value: !Ref MetadataTableV2
 
-  DynamoDBTableArn:
-    Description: DynamoDB table ARN
-    Value: !GetAtt MetadataTable.Arn
+  MetadataTableV2Arn:
+    Description: DynamoDB v2 metadata table ARN
+    Value: !GetAtt MetadataTableV2.Arn
+
+  ArchiveJobQueueUrl:
+    Description: SQS queue URL for archive jobs
+    Value: !Ref ArchiveJobQueue
 
   UserPoolId:
     Description: Cognito User Pool ID
@@ -889,18 +1419,34 @@ Outputs:
     Description: Cognito Hosted UI Login URL
     Value: !Sub "https://${UserPoolDomain}.auth.${AWS::Region}.amazoncognito.com/login?client_id=${UserPoolClient}&response_type=code&scope=email+openid+profile&redirect_uri=http://localhost:3000/callback"
 
-  UploadFunctionArn:
-    Description: Upload Lambda function ARN
-    Value: !GetAtt UploadFunction.Arn
+  DriveFilesFunctionArn:
+    Description: v2 files Lambda function ARN
+    Value: !GetAtt DriveFilesFunction.Arn
 
-  DownloadFunctionArn:
-    Description: Download Lambda function ARN
-    Value: !GetAtt DownloadFunction.Arn
+  DriveFoldersFunctionArn:
+    Description: v2 folders Lambda function ARN
+    Value: !GetAtt DriveFoldersFunction.Arn
 
-  PublicDownloadFunctionArn:
-    Description: Public Download Lambda function ARN
-    Value: !GetAtt PublicDownloadFunction.Arn
+  DriveSharesFunctionArn:
+    Description: v2 shares Lambda function ARN
+    Value: !GetAtt DriveSharesFunction.Arn
 
-  ZipDownloadFunctionArn:
-    Description: Zip Download Lambda function ARN
-    Value: !GetAtt ZipDownloadFunction.Arn
+  DrivePublicLinksAdminFunctionArn:
+    Description: v2 public-links admin Lambda function ARN
+    Value: !GetAtt DrivePublicLinksAdminFunction.Arn
+
+  DriveDownloadV2FunctionArn:
+    Description: v2 private download Lambda function ARN
+    Value: !GetAtt DriveDownloadV2Function.Arn
+
+  DrivePublicDownloadV2FunctionArn:
+    Description: v2 public download Lambda function ARN
+    Value: !GetAtt DrivePublicDownloadV2Function.Arn
+
+  DriveArchiveApiFunctionArn:
+    Description: v2 archive API Lambda function ARN
+    Value: !GetAtt DriveArchiveApiFunction.Arn
+
+  DriveArchiveWorkerFunctionArn:
+    Description: v2 archive worker Lambda function ARN
+    Value: !GetAtt DriveArchiveWorkerFunction.Arn

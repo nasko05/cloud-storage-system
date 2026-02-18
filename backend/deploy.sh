@@ -34,34 +34,44 @@ echo ""
 rm -rf "$BUILD_DIR"
 mkdir -p "$BUILD_DIR"
 
-echo "Packaging Upload Lambda..."
-cd lambdas/upload
-SHARED_FILES=$(ls ../shared/*.py | xargs -n1 basename)
-cp ../shared/*.py .
-zip -rq "../../$BUILD_DIR/upload-lambda.zip" *.py
-for f in $SHARED_FILES; do rm -f "$f"; done
-cd ../..
+package_lambda() {
+  local lambda_dir="$1"
+  local zip_name="$2"
+  local shared_dir="$3"
 
-echo "Packaging Download Lambda..."
-cd lambdas/download
-SHARED_FILES=$(ls ../shared/*.py | xargs -n1 basename)
-cp ../shared/*.py .
-zip -rq "../../$BUILD_DIR/download-lambda.zip" *.py
-for f in $SHARED_FILES; do rm -f "$f"; done
-cd ../..
+  echo "Packaging ${lambda_dir} Lambda..."
+  pushd "lambdas/${lambda_dir}" >/dev/null
 
-echo "Packaging Public Download Lambda..."
-cd lambdas/public_download
-zip -rq "../../$BUILD_DIR/public-download-lambda.zip" *.py
-cd ../..
+  local shared_files=()
+  if [ -n "$shared_dir" ]; then
+    while IFS= read -r -d '' file; do
+      shared_files+=("$(basename "$file")")
+    done < <(find "../${shared_dir}" -maxdepth 1 -type f -name '*.py' -print0)
 
-echo "Packaging Zip Download Lambda..."
-cd lambdas/zip_download
-SHARED_FILES=$(ls ../shared/*.py | xargs -n1 basename)
-cp ../shared/*.py .
-zip -rq "../../$BUILD_DIR/zip-download-lambda.zip" *.py
-for f in $SHARED_FILES; do rm -f "$f"; done
-cd ../..
+    if [ ${#shared_files[@]} -gt 0 ]; then
+      cp "../${shared_dir}"/*.py .
+    fi
+  fi
+
+  zip -rq "../../${BUILD_DIR}/${zip_name}" *.py
+
+  if [ ${#shared_files[@]} -gt 0 ]; then
+    for f in "${shared_files[@]}"; do
+      rm -f "$f"
+    done
+  fi
+
+  popd >/dev/null
+}
+
+package_lambda "v2_files" "v2-files-lambda.zip" "shared_v2"
+package_lambda "v2_folders" "v2-folders-lambda.zip" "shared_v2"
+package_lambda "v2_shares" "v2-shares-lambda.zip" "shared_v2"
+package_lambda "v2_public_links_admin" "v2-public-links-admin-lambda.zip" "shared_v2"
+package_lambda "v2_download" "v2-download-lambda.zip" "shared_v2"
+package_lambda "v2_public_download" "v2-public-download-lambda.zip" "shared_v2"
+package_lambda "v2_archive_api" "v2-archive-api-lambda.zip" "shared_v2"
+package_lambda "v2_archive_worker" "v2-archive-worker-lambda.zip" "shared_v2"
 
 ARTIFACT_BUCKET="${ENV_NAME}-cloudstorage-artifacts-${ACCOUNT_ID}-${REGION}"
 
@@ -71,10 +81,14 @@ if ! aws s3 ls "s3://$ARTIFACT_BUCKET" --profile "$PROFILE" 2>/dev/null; then
 fi
 
 echo "Uploading Lambda packages to S3..."
-aws s3 cp "$BUILD_DIR/upload-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/upload-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/download-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/public-download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/public-download-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/zip-download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/zip-download-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-files-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-files-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-folders-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-folders-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-shares-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-shares-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-public-links-admin-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-public-links-admin-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-download-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-public-download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-public-download-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-archive-api-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-archive-api-lambda.zip" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-archive-worker-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-archive-worker-lambda.zip" --profile "$PROFILE"
 
 echo "Deploying CloudFormation stack..."
 aws cloudformation deploy \
@@ -89,42 +103,27 @@ aws cloudformation deploy \
 
 echo "Updating Lambda functions with packaged code..."
 
-UPLOAD_FN="${ENV_NAME}-upload-fn"
-DOWNLOAD_FN="${ENV_NAME}-download-fn"
-PUBLIC_DOWNLOAD_FN="${ENV_NAME}-public-download-fn"
-ZIP_DOWNLOAD_FN="${ENV_NAME}-zip-download-fn"
+update_lambda_code() {
+  local function_name="$1"
+  local s3_key="$2"
 
-aws lambda update-function-code \
-  --function-name "$UPLOAD_FN" \
-  --s3-bucket "$ARTIFACT_BUCKET" \
-  --s3-key "lambdas/upload-lambda.zip" \
-  --region "$REGION" \
-  --profile "$PROFILE" \
-  --no-cli-pager
+  aws lambda update-function-code \
+    --function-name "$function_name" \
+    --s3-bucket "$ARTIFACT_BUCKET" \
+    --s3-key "$s3_key" \
+    --region "$REGION" \
+    --profile "$PROFILE" \
+    --no-cli-pager >/dev/null
+}
 
-aws lambda update-function-code \
-  --function-name "$DOWNLOAD_FN" \
-  --s3-bucket "$ARTIFACT_BUCKET" \
-  --s3-key "lambdas/download-lambda.zip" \
-  --region "$REGION" \
-  --profile "$PROFILE" \
-  --no-cli-pager
-
-aws lambda update-function-code \
-  --function-name "$PUBLIC_DOWNLOAD_FN" \
-  --s3-bucket "$ARTIFACT_BUCKET" \
-  --s3-key "lambdas/public-download-lambda.zip" \
-  --region "$REGION" \
-  --profile "$PROFILE" \
-  --no-cli-pager
-
-aws lambda update-function-code \
-  --function-name "$ZIP_DOWNLOAD_FN" \
-  --s3-bucket "$ARTIFACT_BUCKET" \
-  --s3-key "lambdas/zip-download-lambda.zip" \
-  --region "$REGION" \
-  --profile "$PROFILE" \
-  --no-cli-pager
+update_lambda_code "${ENV_NAME}-drive-files-fn" "lambdas/v2-files-lambda.zip"
+update_lambda_code "${ENV_NAME}-drive-folders-fn" "lambdas/v2-folders-lambda.zip"
+update_lambda_code "${ENV_NAME}-drive-shares-fn" "lambdas/v2-shares-lambda.zip"
+update_lambda_code "${ENV_NAME}-drive-public-links-admin-fn" "lambdas/v2-public-links-admin-lambda.zip"
+update_lambda_code "${ENV_NAME}-drive-download-fn" "lambdas/v2-download-lambda.zip"
+update_lambda_code "${ENV_NAME}-drive-public-download-fn" "lambdas/v2-public-download-lambda.zip"
+update_lambda_code "${ENV_NAME}-drive-archive-api-fn" "lambdas/v2-archive-api-lambda.zip"
+update_lambda_code "${ENV_NAME}-drive-archive-worker-fn" "lambdas/v2-archive-worker-lambda.zip"
 
 echo ""
 echo "Deployment complete!"

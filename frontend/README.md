@@ -1,51 +1,74 @@
 # Frontend - Personal Cloud Storage
 
-Simple React frontend for the personal cloud storage system.
+React + TypeScript web client for the cloud storage backend.
 
-## Setup
+## Tech stack
 
-1. Copy `.env.example` to `.env` and fill in values from backend deployment:
+- React 18 + TypeScript
+- MUI + MUI X Data Grid
+- `amazon-cognito-identity-js` for auth
+
+## Implemented UX
+
+- Login/register/confirm with Cognito
+- My files + Shared with me tabs
+- Folder tree navigation
+- Grid and list views (persisted preference)
+- Multi-select, context menu, rename, move, delete
+- Drag/drop move into folders
+- Drag/drop upload (files and folders) with progress + cancel
+- Share dialog (user shares + public links)
+- Public link page at `/s/{token}` for unauthenticated downloads
+- Image thumbnails with presigned URL cache
+- Recent and frequent files (localStorage)
+
+## Local development
+
+### 1. Configure environment
 
 ```bash
 cp .env.example .env
 ```
 
-2. Install dependencies:
+Set at least:
+- `REACT_APP_API_ENDPOINT`
+- `REACT_APP_USER_POOL_ID`
+- `REACT_APP_COGNITO_CLIENT_ID`
+- `REACT_APP_REGION`
+
+### 2. Install and run
 
 ```bash
 npm install
-```
-
-3. Start development server:
-
-```bash
 npm start
 ```
 
-Opens at http://localhost:3000
+App runs at [http://localhost:3000](http://localhost:3000).
 
-## Deploy to AWS (S3 + CloudFront)
+## Build
 
 ```bash
-chmod +x deploy.sh
+npm run build
+```
+
+## Deploy (S3 + CloudFront)
+
+```bash
+cp .env.example .env
 ./deploy.sh
 ```
 
-This will:
-1. Create S3 bucket for static files
-2. Create CloudFront CDN distribution
-3. Build the React app
-4. Upload to S3
-5. Invalidate CloudFront cache
+Deploy script behavior:
+- deploys `cloudformation_hosting.yaml`
+- builds the app
+- syncs `build/` to S3
+- invalidates CloudFront cache
 
-Your site will be available at `https://xxxxxx.cloudfront.net`
+## Key source files
 
-Cost: ~$1-2/month (mostly CloudFront requests)
-
-## Features
-
-- Login with Cognito credentials
-- Upload files
-- Download files
-- Delete files
-- File list with size display
+- App shell: `/Users/adonev/workspace/cloud-storage-system/frontend/src/App.tsx`
+- API client: `/Users/adonev/workspace/cloud-storage-system/frontend/src/api.ts`
+- Business services: `/Users/adonev/workspace/cloud-storage-system/frontend/src/service/driveService.ts`
+- Upload engine: `/Users/adonev/workspace/cloud-storage-system/frontend/src/hooks/useUploadManager.ts`
+- Share/public-link UI: `/Users/adonev/workspace/cloud-storage-system/frontend/src/components/ShareDialog.tsx`
+- Public download page: `/Users/adonev/workspace/cloud-storage-system/frontend/src/components/PublicDownloadPage.tsx`
