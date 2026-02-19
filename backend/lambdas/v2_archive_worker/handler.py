@@ -2,6 +2,7 @@ import json
 import os
 import tempfile
 import zipfile
+from collections import deque
 from os.path import splitext
 
 from boto3.dynamodb.conditions import Key
@@ -50,9 +51,9 @@ def _collect_folder_files(user_id, folder_ids, files_by_id):
             if not folder_item or folder_item.get('ownerId') != user_id:
                 raise ValueError(f'Folder not found: {normalized}')
 
-        queue = [normalized]
+        queue = deque([normalized])
         while queue:
-            current_parent = queue.pop(0)
+            current_parent = queue.popleft()
             kwargs = {
                 'IndexName': 'GSI1',
                 'KeyConditionExpression': Key('gsi1pk').eq(owner_parent_gsi_pk(user_id, current_parent)),

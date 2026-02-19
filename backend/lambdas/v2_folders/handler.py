@@ -1,4 +1,5 @@
 import uuid
+from collections import deque
 from boto3.dynamodb.conditions import Key
 
 from common import BUCKET, extract_user, parse_json_body, response, s3, table, utc_now_iso
@@ -107,6 +108,8 @@ def _list_children(event, user_id, folder_id, corr_id):
     for item in result.get('Items', []):
         item_type = item.get('itemType')
         if item_type == 'FILE':
+            share_count = int(item.get('shareCount', 0) or 0)
+            public_link_count = int(item.get('publicLinkCount', 0) or 0)
             items.append({
                 'type': 'file',
                 'fileId': item.get('fileId'),
@@ -115,6 +118,8 @@ def _list_children(event, user_id, folder_id, corr_id):
                 'size': int(item.get('size', 0)),
                 'contentType': item.get('contentType', 'application/octet-stream'),
                 'status': item.get('status', 'ready'),
+                'isShared': share_count > 0,
+                'hasPublicLink': public_link_count > 0,
                 'createdAt': item.get('createdAt'),
                 'updatedAt': item.get('updatedAt'),
             })
@@ -248,9 +253,9 @@ def _delete_folder(event, user_id, folder_id, corr_id):
     files_to_delete = []
 
     if recursive:
-        queue = [folder_id]
+        queue = deque([folder_id])
         while queue:
-            parent_id = queue.pop(0)
+            parent_id = queue.popleft()
             query_kwargs = {
                 'IndexName': 'GSI1',
                 'KeyConditionExpression': Key('gsi1pk').eq(owner_parent_gsi_pk(user_id, parent_id)),

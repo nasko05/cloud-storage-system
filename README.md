@@ -20,9 +20,9 @@ Serverless personal cloud storage (Google Drive style) built on AWS.
 - **Frontend:** React + TypeScript + MUI
 - **API:** API Gateway HTTP API + JWT authorizer
 - **Auth:** Cognito User Pool
-- **Compute:** 4 Python Lambdas (`upload`, `download`, `public-download`, `zip-download`)
+- **Compute:** 8 Python Lambdas (domain-split v2 API + async archive worker)
 - **Storage:** S3 (encrypted, versioned, lifecycle rules)
-- **Metadata/ACL:** DynamoDB single-table design with GSI + TTL
+- **Metadata/ACL:** DynamoDB `MetadataTableV2` (single-table design with GSIs + TTL)
 - **Hosting:** S3 + CloudFront (private origin via OAC)
 
 For full details, see `/Users/adonev/workspace/cloud-storage-system/docs/ARCHITECTURE.md`.

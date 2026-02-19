@@ -4,7 +4,6 @@ import type { DriveFile } from '../types/drive';
 const DEFAULT_STORAGE_KEY = 'driveFileAccess';
 const DEFAULT_MAX_RECORDS = 100;
 const DEFAULT_MAX_RECENT = 6;
-const DEFAULT_MAX_FREQUENT = 6;
 
 export interface FileAccessRecord {
   fileId: string;
@@ -17,7 +16,6 @@ interface UseFileAccessHistoryOptions {
   storageKey?: string;
   maxRecords?: number;
   maxRecent?: number;
-  maxFrequent?: number;
 }
 
 function readFileAccessRecords(storageKey: string): FileAccessRecord[] {
@@ -56,13 +54,12 @@ export function useFileAccessHistory(
   options?: UseFileAccessHistoryOptions
 ): {
   recentFiles: FileAccessRecord[];
-  frequentFiles: FileAccessRecord[];
   recordFileAccess: (file: Pick<DriveFile, 'fileId' | 'filename'>) => void;
+  removeFileAccess: (fileId: string) => void;
 } {
   const storageKey = options?.storageKey ?? DEFAULT_STORAGE_KEY;
   const maxRecords = options?.maxRecords ?? DEFAULT_MAX_RECORDS;
   const maxRecent = options?.maxRecent ?? DEFAULT_MAX_RECENT;
-  const maxFrequent = options?.maxFrequent ?? DEFAULT_MAX_FREQUENT;
 
   const [fileAccessRecords, setFileAccessRecords] = useState<FileAccessRecord[]>(() =>
     readFileAccessRecords(storageKey)
@@ -101,25 +98,18 @@ export function useFileAccessHistory(
     [maxRecords]
   );
 
+  const removeFileAccess = useCallback((fileId: string): void => {
+    setFileAccessRecords((current) => current.filter((entry) => entry.fileId !== fileId));
+  }, []);
+
   const recentFiles = useMemo(
     () => fileAccessRecords.slice(0, maxRecent),
     [fileAccessRecords, maxRecent]
   );
 
-  const frequentFiles = useMemo(
-    () =>
-      [...fileAccessRecords]
-        .sort((a, b) => {
-          if (b.accessCount !== a.accessCount) return b.accessCount - a.accessCount;
-          return Date.parse(b.lastAccessedAt) - Date.parse(a.lastAccessedAt);
-        })
-        .slice(0, maxFrequent),
-    [fileAccessRecords, maxFrequent]
-  );
-
   return {
     recentFiles,
-    frequentFiles,
-    recordFileAccess
+    recordFileAccess,
+    removeFileAccess
   };
 }

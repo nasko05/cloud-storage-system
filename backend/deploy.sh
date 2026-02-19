@@ -75,20 +75,46 @@ package_lambda "v2_archive_worker" "v2-archive-worker-lambda.zip" "shared_v2"
 
 ARTIFACT_BUCKET="${ENV_NAME}-cloudstorage-artifacts-${ACCOUNT_ID}-${REGION}"
 
+artifact_hash() {
+  local file_path="$1"
+  if command -v shasum >/dev/null 2>&1; then
+    shasum -a 256 "$file_path" | awk '{print $1}'
+    return
+  fi
+  sha256sum "$file_path" | awk '{print $1}'
+}
+
+artifact_key() {
+  local file_path="$1"
+  local name="$2"
+  local hash
+  hash="$(artifact_hash "$file_path")"
+  echo "lambdas/${name}-${hash:0:16}.zip"
+}
+
 echo "Creating artifact bucket: $ARTIFACT_BUCKET"
 if ! aws s3 ls "s3://$ARTIFACT_BUCKET" --profile "$PROFILE" 2>/dev/null; then
   aws s3 mb "s3://$ARTIFACT_BUCKET" --region "$REGION" --profile "$PROFILE"
 fi
 
 echo "Uploading Lambda packages to S3..."
-aws s3 cp "$BUILD_DIR/v2-files-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-files-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/v2-folders-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-folders-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/v2-shares-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-shares-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/v2-public-links-admin-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-public-links-admin-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/v2-download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-download-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/v2-public-download-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-public-download-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/v2-archive-api-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-archive-api-lambda.zip" --profile "$PROFILE"
-aws s3 cp "$BUILD_DIR/v2-archive-worker-lambda.zip" "s3://$ARTIFACT_BUCKET/lambdas/v2-archive-worker-lambda.zip" --profile "$PROFILE"
+FILES_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-files-lambda.zip" "v2-files-lambda")"
+FOLDERS_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-folders-lambda.zip" "v2-folders-lambda")"
+SHARES_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-shares-lambda.zip" "v2-shares-lambda")"
+PUBLIC_LINKS_ADMIN_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-public-links-admin-lambda.zip" "v2-public-links-admin-lambda")"
+DOWNLOAD_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-download-lambda.zip" "v2-download-lambda")"
+PUBLIC_DOWNLOAD_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-public-download-lambda.zip" "v2-public-download-lambda")"
+ARCHIVE_API_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-archive-api-lambda.zip" "v2-archive-api-lambda")"
+ARCHIVE_WORKER_CODE_KEY="$(artifact_key "$BUILD_DIR/v2-archive-worker-lambda.zip" "v2-archive-worker-lambda")"
+
+aws s3 cp "$BUILD_DIR/v2-files-lambda.zip" "s3://$ARTIFACT_BUCKET/$FILES_CODE_KEY" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-folders-lambda.zip" "s3://$ARTIFACT_BUCKET/$FOLDERS_CODE_KEY" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-shares-lambda.zip" "s3://$ARTIFACT_BUCKET/$SHARES_CODE_KEY" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-public-links-admin-lambda.zip" "s3://$ARTIFACT_BUCKET/$PUBLIC_LINKS_ADMIN_CODE_KEY" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-download-lambda.zip" "s3://$ARTIFACT_BUCKET/$DOWNLOAD_CODE_KEY" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-public-download-lambda.zip" "s3://$ARTIFACT_BUCKET/$PUBLIC_DOWNLOAD_CODE_KEY" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-archive-api-lambda.zip" "s3://$ARTIFACT_BUCKET/$ARCHIVE_API_CODE_KEY" --profile "$PROFILE"
+aws s3 cp "$BUILD_DIR/v2-archive-worker-lambda.zip" "s3://$ARTIFACT_BUCKET/$ARCHIVE_WORKER_CODE_KEY" --profile "$PROFILE"
 
 echo "Deploying CloudFormation stack..."
 aws cloudformation deploy \
@@ -99,31 +125,16 @@ aws cloudformation deploy \
   --capabilities CAPABILITY_NAMED_IAM \
   --parameter-overrides \
     EnvironmentName="$ENV_NAME" \
+    ArtifactBucketName="$ARTIFACT_BUCKET" \
+    DriveFilesCodeKey="$FILES_CODE_KEY" \
+    DriveFoldersCodeKey="$FOLDERS_CODE_KEY" \
+    DriveSharesCodeKey="$SHARES_CODE_KEY" \
+    DrivePublicLinksAdminCodeKey="$PUBLIC_LINKS_ADMIN_CODE_KEY" \
+    DriveDownloadCodeKey="$DOWNLOAD_CODE_KEY" \
+    DrivePublicDownloadCodeKey="$PUBLIC_DOWNLOAD_CODE_KEY" \
+    DriveArchiveApiCodeKey="$ARCHIVE_API_CODE_KEY" \
+    DriveArchiveWorkerCodeKey="$ARCHIVE_WORKER_CODE_KEY" \
   --no-fail-on-empty-changeset
-
-echo "Updating Lambda functions with packaged code..."
-
-update_lambda_code() {
-  local function_name="$1"
-  local s3_key="$2"
-
-  aws lambda update-function-code \
-    --function-name "$function_name" \
-    --s3-bucket "$ARTIFACT_BUCKET" \
-    --s3-key "$s3_key" \
-    --region "$REGION" \
-    --profile "$PROFILE" \
-    --no-cli-pager >/dev/null
-}
-
-update_lambda_code "${ENV_NAME}-drive-files-fn" "lambdas/v2-files-lambda.zip"
-update_lambda_code "${ENV_NAME}-drive-folders-fn" "lambdas/v2-folders-lambda.zip"
-update_lambda_code "${ENV_NAME}-drive-shares-fn" "lambdas/v2-shares-lambda.zip"
-update_lambda_code "${ENV_NAME}-drive-public-links-admin-fn" "lambdas/v2-public-links-admin-lambda.zip"
-update_lambda_code "${ENV_NAME}-drive-download-fn" "lambdas/v2-download-lambda.zip"
-update_lambda_code "${ENV_NAME}-drive-public-download-fn" "lambdas/v2-public-download-lambda.zip"
-update_lambda_code "${ENV_NAME}-drive-archive-api-fn" "lambdas/v2-archive-api-lambda.zip"
-update_lambda_code "${ENV_NAME}-drive-archive-worker-fn" "lambdas/v2-archive-worker-lambda.zip"
 
 echo ""
 echo "Deployment complete!"

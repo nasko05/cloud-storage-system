@@ -170,8 +170,8 @@ function App(): JSX.Element {
 
   const {
     recentFiles,
-    frequentFiles,
-    recordFileAccess
+    recordFileAccess,
+    removeFileAccess
   } = useFileAccessHistory();
 
   // --- Selection ---
@@ -933,9 +933,11 @@ function App(): JSX.Element {
             {driveTab === 'my-drive' && (
               <QuickAccessPanel
                 recentFiles={recentFiles}
-                frequentFiles={frequentFiles}
                 onOpenFile={(record) => {
                   void handleQuickAccessDownload(record);
+                }}
+                onRemoveFile={(record) => {
+                  removeFileAccess(record.fileId);
                 }}
               />
             )}

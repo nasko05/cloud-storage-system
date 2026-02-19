@@ -1,18 +1,23 @@
-# Backend - Personal Cloud Storage
+# Backend - Personal Cloud Storage (v2 API)
 
-Serverless AWS backend for private file storage, sharing, and public links.
+Serverless AWS backend for private file storage, sharing, public links, and async archive downloads.
 
 ## Stack components
 
 - API Gateway HTTP API (JWT auth for private routes)
 - Cognito User Pool + App Client
 - Lambda functions (Python 3.11)
-  - `upload-fn`
-  - `download-fn`
-  - `public-download-fn`
-  - `zip-download-fn`
-- S3 bucket for file bytes + generated ZIP archives
-- DynamoDB metadata table (single-table design, GSI1, TTL)
+  - `drive-files-fn`
+  - `drive-folders-fn`
+  - `drive-shares-fn`
+  - `drive-public-links-admin-fn`
+  - `drive-download-fn`
+  - `drive-public-download-fn`
+  - `drive-archive-api-fn`
+  - `drive-archive-worker-fn`
+- S3 bucket for file bytes + generated archive ZIP files
+- DynamoDB metadata table `MetadataTableV2` (single-table design with GSIs + TTL)
+- SQS queue for archive jobs
 
 ## Deploy
 
@@ -23,10 +28,10 @@ cp .env.example .env
 ```
 
 The deploy script:
-- packages Lambda zips from `lambdas/`
-- uploads artifacts to an env-specific S3 artifact bucket
-- deploys `cloudformation_stack.yaml`
-- updates Lambda function code from the artifact bucket
+- packages v2 Lambda zips from `lambdas/`
+- uploads artifacts to an env-specific S3 artifact bucket (hash-versioned keys)
+- deploys `cloudformation_stack.yaml` with artifact bucket/code-key parameters
+- updates Lambda code through CloudFormation only (no post-deploy `update-function-code` drift step)
 
 ## CloudFormation outputs to keep
 
@@ -34,68 +39,67 @@ The deploy script:
 - `UserPoolId`
 - `UserPoolClientId`
 - `S3BucketName`
-- `DynamoDBTableName`
+- `MetadataTableV2Name`
+- `ArchiveJobQueueUrl`
 
 ## Routes
 
-| Method | Path | Auth | Lambda |
-|---|---|---|---|
-| `POST` | `/upload` | JWT | `upload-fn` |
-| `POST` | `/download` | JWT | `download-fn` |
-| `POST` | `/zip` | JWT | `zip-download-fn` |
-| `POST` | `/files` | JWT | `upload-fn` (legacy alias route) |
-| `GET` | `/public/{token}` | none | `public-download-fn` |
-| `POST` | `/public/{token}` | none | `public-download-fn` |
+### Private routes (JWT)
 
-## `/upload` action API
-
-`/upload` is an action router. If `action` is missing, request is treated as file-upload metadata request.
-
-### Actions
-
-| `action` | Required fields | Result |
+| Method | Path | Lambda |
 |---|---|---|
-| `list` | optional `folder` | list files + folders in path |
-| `delete` | `fileId` | delete file and related metadata |
-| `create-folder` | `folderName`, optional `path` | create folder |
-| `delete-folder` | `path` | delete empty folder |
-| `move-file` | `fileId`, `destinationPath` | move file metadata |
-| `rename-file` | `fileId`, `newName` | rename file metadata |
-| `move-folder` | `folderPath`, `destinationPath` | move folder subtree |
-| `rename-folder` | `folderPath`, `newName` | rename folder subtree |
-| `shared-with-me` | none | list files shared with caller |
-| `share` | `fileId`, `shareWithEmail` or `shareWithUserId`, optional `permission`, optional `expiryDays` | create share |
-| `unshare` | `fileId`, `revokeUserId` | revoke share |
-| `list-shares` | `fileId` | list active shares for owned file |
-| `update-share` | `fileId`, `targetUserId`, `permission` | update permission |
-| `create-public-link` | `fileId`, optional `password`, optional `expiryDays` | create public token link |
-| `list-public-links` | `fileId` | list active links for file |
-| `delete-public-link` | `token` | delete public link |
-| `update-public-link` | `token`, optional `password`, optional `removePassword`, optional `expiryDays` | update link settings |
+| `POST` | `/v2/files/uploads` | `drive-files-fn` |
+| `POST` | `/v2/files/{fileId}/finalize` | `drive-files-fn` |
+| `PATCH` | `/v2/files/{fileId}` | `drive-files-fn` |
+| `DELETE` | `/v2/files/{fileId}` | `drive-files-fn` |
+| `GET` | `/v2/folders/{folderId}/children` | `drive-folders-fn` |
+| `POST` | `/v2/folders/{folderId}/folders` | `drive-folders-fn` |
+| `PATCH` | `/v2/folders/{folderId}` | `drive-folders-fn` |
+| `DELETE` | `/v2/folders/{folderId}` | `drive-folders-fn` |
+| `GET` | `/v2/shares/inbound` | `drive-shares-fn` |
+| `GET` | `/v2/files/{fileId}/shares` | `drive-shares-fn` |
+| `PUT` | `/v2/files/{fileId}/shares/{principal}` | `drive-shares-fn` |
+| `PATCH` | `/v2/files/{fileId}/shares/{principal}` | `drive-shares-fn` |
+| `DELETE` | `/v2/files/{fileId}/shares/{principal}` | `drive-shares-fn` |
+| `POST` | `/v2/files/{fileId}/public-links` | `drive-public-links-admin-fn` |
+| `GET` | `/v2/files/{fileId}/public-links` | `drive-public-links-admin-fn` |
+| `PATCH` | `/v2/public-links/{token}` | `drive-public-links-admin-fn` |
+| `DELETE` | `/v2/public-links/{token}` | `drive-public-links-admin-fn` |
+| `POST` | `/v2/download/files/{fileId}` | `drive-download-fn` |
+| `POST` | `/v2/download/archives` | `drive-archive-api-fn` |
+| `GET` | `/v2/download/archives/{archiveJobId}` | `drive-archive-api-fn` |
 
-### Upload metadata request (no `action`)
+### Public routes (no JWT)
 
-Body fields:
-- `filename` (required)
-- `contentType` (optional)
-- `size` (optional)
-- `path` (optional)
-
-Returns:
-- `uploadUrl` (presigned PUT URL)
-- `fileId`
-- `s3Key`
-- `expiresIn`
-
-## Other endpoint contracts
-
-- `POST /download`: requires `fileId`; returns presigned download URL if caller owns file or has a valid share.
-- `POST /zip`: accepts `fileIds[]` and `folderPaths[]`; returns presigned ZIP download URL.
-- `GET /public/{token}`: metadata for public link.
-- `POST /public/{token}`: optional password, increments download count, returns presigned download URL.
+| Method | Path | Lambda |
+|---|---|---|
+| `GET` | `/v2/public-links/{token}` | `drive-public-download-fn` |
+| `POST` | `/v2/public-links/{token}/download` | `drive-public-download-fn` |
 
 ## Notes
 
 - Share/public-link expiry uses DynamoDB TTL (`ttl`) plus in-code checks.
-- ZIP downloads are stored under `zips/` and auto-expire after 1 day via S3 lifecycle rule.
-- S3 object keys remain stable during move/rename; only DynamoDB path/name keys are changed.
+- Upload lifecycle is two-step: init (`pending`) then finalize (`ready`) after object confirmation.
+- Archive downloads are async via SQS worker; client polls job status endpoint.
+- Legacy v1 routes (`/upload`, `/download`, `/zip`, `/files`, `/public/{token}`) and v1 lambdas were removed.
+
+## Local backend tests
+
+```bash
+python3 -m unittest discover -s backend/tests -p 'test_*.py'
+```
+
+## Local benchmarks
+
+```bash
+python3 backend/benchmarks/run_benchmarks.py --smoke
+python3 backend/benchmarks/run_benchmarks.py
+```
+
+## CI
+
+- Workflow: `/Users/adonev/workspace/cloud-storage-system/.github/workflows/backend-ci.yml`
+- Runs on push/PR:
+  - lambda compile checks
+  - backend unittest suite
+  - benchmark smoke checks

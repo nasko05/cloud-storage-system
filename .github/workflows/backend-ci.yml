@@ -1,0 +1,41 @@
+name: Backend CI
+
+on:
+  pull_request:
+    paths:
+      - 'backend/**'
+      - 'frontend/src/api.ts'
+      - '.github/workflows/backend-ci.yml'
+  push:
+    branches:
+      - main
+      - master
+    paths:
+      - 'backend/**'
+      - 'frontend/src/api.ts'
+      - '.github/workflows/backend-ci.yml'
+
+jobs:
+  backend-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Compile backend lambdas
+        run: |
+          python3 -m py_compile backend/lambdas/shared_v2/*.py backend/lambdas/v2_*/*.py
+
+      - name: Run backend unit tests
+        run: |
+          python3 -m unittest discover -s backend/tests -p 'test_*.py'
+
+      - name: Run backend benchmark smoke checks
+        run: |
+          python3 backend/benchmarks/run_benchmarks.py --smoke --assert-max-seconds 20

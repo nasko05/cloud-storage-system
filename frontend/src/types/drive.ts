@@ -150,7 +150,7 @@ export interface PublicLink {
   expiresAt: string;
 }
 
-/** Metadata returned by the unauthenticated GET /public/{token} endpoint. */
+/** Metadata returned by the unauthenticated GET /v2/public-links/{token} endpoint. */
 export interface PublicLinkInfo {
   filename: string;
   size: number;

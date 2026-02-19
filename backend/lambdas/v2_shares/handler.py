@@ -51,6 +51,15 @@ def _require_owner_file(user_id, file_id):
     return file_item, None
 
 
+def _adjust_share_count(file_item, delta):
+    table.update_item(
+        Key={'pk': file_item['pk'], 'sk': file_item['sk']},
+        UpdateExpression='SET #sc = if_not_exists(#sc, :zero) + :delta, #ua = :ua',
+        ExpressionAttributeNames={'#sc': 'shareCount', '#ua': 'updatedAt'},
+        ExpressionAttributeValues={':zero': 0, ':delta': int(delta), ':ua': utc_now_iso()},
+    )
+
+
 def _list_inbound_shares(event, user_id, user_email, corr_id):
     now_epoch = int(time.time())
     query_params = event.get('queryStringParameters') or {}
@@ -118,6 +127,7 @@ def _list_inbound_shares(event, user_id, user_email, corr_id):
                     'permission': item.get('permission', 'read'),
                     'principalType': item.get('principalType'),
                     'principalValue': item.get('principalValue'),
+                    'principalDisplay': item.get('principalDisplay', item.get('principalValue')),
                     'sharedAt': item.get('sharedAt'),
                     'expiresAt': item.get('expiresAt'),
                 })
@@ -141,7 +151,7 @@ def _list_inbound_shares(event, user_id, user_email, corr_id):
 
 
 def _list_file_shares(event, user_id, file_id, corr_id):
-    _file_item, err = _require_owner_file(user_id, file_id)
+    file_item, err = _require_owner_file(user_id, file_id)
     if err:
         return err
 
@@ -172,6 +182,7 @@ def _list_file_shares(event, user_id, file_id, corr_id):
         items.append({
             'principalType': item.get('principalType'),
             'principalValue': item.get('principalValue'),
+            'principalDisplay': item.get('principalDisplay', item.get('principalValue')),
             'permission': item.get('permission', 'read'),
             'sharedAt': item.get('sharedAt'),
             'expiresAt': item.get('expiresAt'),
@@ -222,6 +233,7 @@ def _put_share(event, user_id, user_email, file_id, principal, corr_id):
         'ownerEmail': file_item.get('ownerEmail', user_email),
         'principalType': principal_type,
         'principalValue': principal_value,
+        'principalDisplay': principal_value,
         'permission': permission,
         'sharedBy': user_id,
         'sharedByEmail': user_email,
@@ -231,6 +243,8 @@ def _put_share(event, user_id, user_email, file_id, principal, corr_id):
         'ttl': ttl,
     }
     table.put_item(Item=item)
+    if not existing:
+        _adjust_share_count(file_item, 1)
 
     log('info', 'v2_share_upserted', correlation_id=corr_id, userId=user_id, fileId=file_id, principal=principal)
     return response(200, {
@@ -247,7 +261,7 @@ def _patch_share(event, user_id, file_id, principal, corr_id):
     if not principal_type:
         return response(400, {'error': 'Invalid principal format'})
 
-    _file_item, err = _require_owner_file(user_id, file_id)
+    file_item, err = _require_owner_file(user_id, file_id)
     if err:
         return err
 
@@ -318,6 +332,7 @@ def _delete_share(_event, user_id, file_id, principal, corr_id):
         return response(404, {'error': 'Share not found'})
 
     table.delete_item(Key={'pk': pk, 'sk': sk})
+    _adjust_share_count(file_item, -1)
     log('info', 'v2_share_deleted', correlation_id=corr_id, userId=user_id, fileId=file_id, principal=principal)
     return response(200, {
         'message': 'Share revoked',

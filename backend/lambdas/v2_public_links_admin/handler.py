@@ -9,7 +9,7 @@ from boto3.dynamodb.conditions import Key
 from common import SHARE_EXPIRY_DAYS, extract_user, parse_json_body, response, table, utc_now_iso
 from db import get_file_by_id, get_public_link_by_token
 from idempotency import run_idempotent
-from keys import file_entity_pk, public_link_sk, public_token_gsi_pk, public_token_gsi_sk
+from keys import file_entity_pk, file_sk, public_link_sk, public_token_gsi_pk, public_token_gsi_sk, user_pk
 from logging_utils import correlation_id_from_event, log
 from pagination import decode_cursor, encode_cursor, normalize_limit
 
@@ -42,6 +42,15 @@ def _require_owner_file(user_id, file_id):
     if file_item.get('ownerId') != user_id:
         return None, response(403, {'error': 'Access denied'})
     return file_item, None
+
+
+def _adjust_public_link_count(owner_id, file_id, delta):
+    table.update_item(
+        Key={'pk': user_pk(owner_id), 'sk': file_sk(file_id)},
+        UpdateExpression='SET #pl = if_not_exists(#pl, :zero) + :delta, #ua = :ua',
+        ExpressionAttributeNames={'#pl': 'publicLinkCount', '#ua': 'updatedAt'},
+        ExpressionAttributeValues={':zero': 0, ':delta': int(delta), ':ua': utc_now_iso()},
+    )
 
 
 def _create_link(event, user_id, user_email, file_id, corr_id):
@@ -84,6 +93,7 @@ def _create_link(event, user_id, user_email, file_id, corr_id):
         item['passwordSalt'] = pw_salt
 
     table.put_item(Item=item, ConditionExpression='attribute_not_exists(pk) AND attribute_not_exists(sk)')
+    _adjust_public_link_count(user_id, file_id, 1)
     log('info', 'v2_public_link_created', correlation_id=corr_id, userId=user_id, fileId=file_id, token=token)
 
     return response(201, {
@@ -197,6 +207,9 @@ def _delete_link(_event, user_id, token, corr_id):
         return response(403, {'error': 'Access denied'})
 
     table.delete_item(Key={'pk': existing['pk'], 'sk': existing['sk']})
+    file_id = existing.get('fileId')
+    if file_id:
+        _adjust_public_link_count(user_id, file_id, -1)
     log('info', 'v2_public_link_deleted', correlation_id=corr_id, userId=user_id, token=token)
     return response(200, {'message': 'Public link deleted', 'token': token})
 

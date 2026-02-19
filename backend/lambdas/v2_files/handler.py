@@ -113,6 +113,8 @@ def _create_upload(event, user_id, user_email, corr_id):
         's3Key': s3_key,
         'contentType': content_type,
         'size': size,
+        'shareCount': 0,
+        'publicLinkCount': 0,
         'status': 'pending',
         'createdAt': now,
         'updatedAt': now,
@@ -193,6 +195,49 @@ def _patch_file(event, user_id, file_id, corr_id):
     })
 
 
+def _finalize_upload(_event, user_id, file_id, corr_id):
+    file_item, err = _require_owner_file(user_id, file_id)
+    if err:
+        return err
+
+    try:
+        head = s3.head_object(Bucket=BUCKET, Key=file_item['s3Key'])
+    except s3.exceptions.ClientError as error:
+        code = error.response.get('Error', {}).get('Code')
+        if code in ('404', 'NoSuchKey', 'NotFound'):
+            return response(409, {'error': 'File bytes are not uploaded yet'})
+        raise
+
+    actual_size = int(head.get('ContentLength', file_item.get('size', 0)) or 0)
+    actual_content_type = head.get('ContentType') or file_item.get('contentType', 'application/octet-stream')
+
+    if file_item.get('status') != 'ready':
+        table.update_item(
+            Key={'pk': file_item['pk'], 'sk': file_item['sk']},
+            UpdateExpression='SET #st = :st, #sz = :sz, #ct = :ct, #ua = :ua',
+            ExpressionAttributeNames={
+                '#st': 'status',
+                '#sz': 'size',
+                '#ct': 'contentType',
+                '#ua': 'updatedAt',
+            },
+            ExpressionAttributeValues={
+                ':st': 'ready',
+                ':sz': actual_size,
+                ':ct': actual_content_type,
+                ':ua': utc_now_iso(),
+            },
+        )
+
+    log('info', 'v2_file_upload_finalized', correlation_id=corr_id, userId=user_id, fileId=file_id)
+    return response(200, {
+        'fileId': file_id,
+        'status': 'ready',
+        'size': actual_size,
+        'contentType': actual_content_type,
+    })
+
+
 def _delete_file(_event, user_id, file_id, corr_id):
     file_item, err = _require_owner_file(user_id, file_id)
     if err:
@@ -246,6 +291,17 @@ def handler(event, context):
                 user_id,
                 f'v2-files-patch-{file_id}',
                 lambda: _patch_file(event, user_id, file_id, corr_id),
+            )
+
+        if route_key == 'POST /v2/files/{fileId}/finalize' or (method == 'POST' and 'fileId' in path_params and route_key.endswith('/finalize')):
+            file_id = path_params.get('fileId')
+            if not file_id:
+                return response(400, {'error': 'fileId required'})
+            return run_idempotent(
+                event,
+                user_id,
+                f'v2-files-finalize-{file_id}',
+                lambda: _finalize_upload(event, user_id, file_id, corr_id),
             )
 
         if route_key == 'DELETE /v2/files/{fileId}' or (method == 'DELETE' and 'fileId' in path_params):

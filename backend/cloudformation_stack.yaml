@@ -50,6 +50,42 @@ Parameters:
     MaxValue: 7
     Description: Archive job metadata retention in days.
 
+  ArtifactBucketName:
+    Type: String
+    Description: S3 bucket holding packaged Lambda artifacts.
+
+  DriveFilesCodeKey:
+    Type: String
+    Description: S3 object key for drive-files Lambda artifact.
+
+  DriveFoldersCodeKey:
+    Type: String
+    Description: S3 object key for drive-folders Lambda artifact.
+
+  DriveSharesCodeKey:
+    Type: String
+    Description: S3 object key for drive-shares Lambda artifact.
+
+  DrivePublicLinksAdminCodeKey:
+    Type: String
+    Description: S3 object key for drive-public-links-admin Lambda artifact.
+
+  DriveDownloadCodeKey:
+    Type: String
+    Description: S3 object key for drive-download Lambda artifact.
+
+  DrivePublicDownloadCodeKey:
+    Type: String
+    Description: S3 object key for drive-public-download Lambda artifact.
+
+  DriveArchiveApiCodeKey:
+    Type: String
+    Description: S3 object key for drive-archive-api Lambda artifact.
+
+  DriveArchiveWorkerCodeKey:
+    Type: String
+    Description: S3 object key for drive-archive-worker Lambda artifact.
+
 Resources:
   #############################################################################
   # S3 BUCKET - Object Storage with Lifecycle Rules
@@ -839,9 +875,8 @@ Resources:
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
           IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DriveFilesCodeKey
 
   DriveFoldersFunction:
     Type: AWS::Lambda::Function
@@ -859,9 +894,8 @@ Resources:
           METADATA_TABLE_NAME: !Ref MetadataTableV2
           IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DriveFoldersCodeKey
 
   DriveSharesFunction:
     Type: AWS::Lambda::Function
@@ -880,9 +914,8 @@ Resources:
           SHARE_EXPIRY_DAYS: !Ref ShareExpiryDays
           IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DriveSharesCodeKey
 
   DrivePublicLinksAdminFunction:
     Type: AWS::Lambda::Function
@@ -901,9 +934,8 @@ Resources:
           SHARE_EXPIRY_DAYS: !Ref ShareExpiryDays
           IDEMPOTENCY_TTL_SECONDS: !Ref IdempotencyTtlSeconds
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DrivePublicLinksAdminCodeKey
 
   DriveDownloadV2Function:
     Type: AWS::Lambda::Function
@@ -921,9 +953,8 @@ Resources:
           METADATA_TABLE_NAME: !Ref MetadataTableV2
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DriveDownloadCodeKey
 
   DrivePublicDownloadV2Function:
     Type: AWS::Lambda::Function
@@ -941,9 +972,8 @@ Resources:
           METADATA_TABLE_NAME: !Ref MetadataTableV2
           PRESIGNED_URL_EXPIRY: !Ref PresignedUrlExpirySeconds
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DrivePublicDownloadCodeKey
 
   DriveArchiveApiFunction:
     Type: AWS::Lambda::Function
@@ -964,9 +994,8 @@ Resources:
           ARCHIVE_JOB_TTL_DAYS: !Ref ArchiveJobTtlDays
           ARCHIVE_QUEUE_URL: !Ref ArchiveJobQueue
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DriveArchiveApiCodeKey
 
   DriveArchiveWorkerFunction:
     Type: AWS::Lambda::Function
@@ -984,9 +1013,8 @@ Resources:
           METADATA_TABLE_NAME: !Ref MetadataTableV2
           ARCHIVE_JOB_TTL_DAYS: !Ref ArchiveJobTtlDays
       Code:
-        ZipFile: |
-          def handler(event, context):
-              return {'statusCode': 200, 'body': 'Placeholder - run deploy.sh to update'}
+        S3Bucket: !Ref ArtifactBucketName
+        S3Key: !Ref DriveArchiveWorkerCodeKey
 
   #############################################################################
   # API GATEWAY HTTP API
@@ -1127,6 +1155,15 @@ Resources:
     Properties:
       ApiId: !Ref HttpApi
       RouteKey: "PATCH /v2/files/{fileId}"
+      AuthorizationType: JWT
+      AuthorizerId: !Ref JwtAuthorizer
+      Target: !Sub "integrations/${DriveFilesIntegration}"
+
+  V2FilesFinalizeRoute:
+    Type: AWS::ApiGatewayV2::Route
+    Properties:
+      ApiId: !Ref HttpApi
+      RouteKey: "POST /v2/files/{fileId}/finalize"
       AuthorizationType: JWT
       AuthorizerId: !Ref JwtAuthorizer
       Target: !Sub "integrations/${DriveFilesIntegration}"

@@ -79,8 +79,6 @@ interface UnshareResult extends ApiResult {
   revokedUser?: string;
 }
 
-// --- Public link types (authenticated CRUD) ---
-
 interface CreatePublicLinkResult extends ApiResult {
   token?: string;
   fileId?: string;
@@ -103,8 +101,6 @@ interface ListPublicLinksResult extends ApiResult {
   }>;
 }
 
-// --- Public link types (unauthenticated access) ---
-
 interface PublicLinkInfoResult extends ApiResult {
   filename?: string;
   size?: number;
@@ -122,25 +118,89 @@ interface PublicDownloadResult extends ApiResult {
   expiresIn?: number;
 }
 
-class DriveApiClient {
-  /** Authenticated API call (attaches JWT). */
-  public static async call<T extends ApiResult>(endpoint: string, body: ApiBody): Promise<T> {
-    const token = await getToken();
-    const resp = await fetch(`${config.apiEndpoint}${endpoint}`, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token ?? ''}`
-      },
-      body: JSON.stringify(body)
-    });
+type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
+type PagedItems<T> = {
+  items?: T[];
+  nextCursor?: string | null;
+};
+
+interface V2FolderChildItem {
+  type?: 'file' | 'folder';
+  fileId?: string;
+  folderId?: string;
+  name?: string;
+  size?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  sharedAt?: string;
+  permission?: string;
+  hasPassword?: boolean;
+  downloadCount?: number;
+  expiresAt?: string;
+  principalType?: string;
+  principalValue?: string;
+  principalDisplay?: string;
+  ownerId?: string;
+  ownerEmail?: string;
+  filename?: string;
+  token?: string;
+  isShared?: boolean;
+  hasPublicLink?: boolean;
+}
+
+interface V2ArchiveCreateResult extends ApiResult {
+  archiveJobId?: string;
+  status?: string;
+}
+
+interface V2ArchiveStatusResult extends ApiResult {
+  archiveJobId?: string;
+  status?: 'queued' | 'processing' | 'ready' | 'failed' | 'expired';
+  downloadUrl?: string;
+  expiresIn?: number;
+  errorMessage?: string;
+}
+
+const ROOT_FOLDER_ID = 'root';
+const ARCHIVE_POLL_INTERVAL_MS = 1500;
+const ARCHIVE_POLL_TIMEOUT_MS = 2 * 60 * 1000;
+
+const folderPathCache = new Map<string, string>([['/', ROOT_FOLDER_ID]]);
+
+function resetFolderPathCache(): void {
+  folderPathCache.clear();
+  folderPathCache.set('/', ROOT_FOLDER_ID);
+}
+
+class DriveApiClient {
+  private static async request<T>(
+    endpoint: string,
+    method: HttpMethod,
+    body?: ApiBody,
+    auth = true
+  ): Promise<T> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+    if (auth) {
+      const token = await getToken();
+      headers.Authorization = `Bearer ${token ?? ''}`;
+    }
+
+    const init: RequestInit = {
+      method,
+      headers,
+    };
+
+    if (body && method !== 'GET') {
+      init.body = JSON.stringify(body);
+    }
+
+    const resp = await fetch(`${config.apiEndpoint}${endpoint}`, init);
     if (resp.status === 401) {
       throw new Error('Session expired. Please log in again.');
     }
 
     if (!resp.ok) {
-      // Try to extract an error message from the response body
       let errorMessage: string;
       try {
         const errorBody = (await resp.json()) as { error?: string };
@@ -154,64 +214,198 @@ class DriveApiClient {
     return (await resp.json()) as T;
   }
 
-  /** Unauthenticated API call (no JWT). */
-  public static async publicCall<T extends ApiResult>(
+  public static authRequest<T>(
+    endpoint: string,
+    method: HttpMethod,
+    body?: ApiBody
+  ): Promise<T> {
+    return this.request<T>(endpoint, method, body, true);
+  }
+
+  public static publicCall<T>(
     endpoint: string,
     method: 'GET' | 'POST' = 'GET',
     body?: ApiBody
   ): Promise<T> {
-    const options: RequestInit = {
-      method,
-      headers: { 'Content-Type': 'application/json' },
-    };
-    if (body && method === 'POST') {
-      options.body = JSON.stringify(body);
-    }
-    const resp = await fetch(`${config.apiEndpoint}${endpoint}`, options);
-
-    if (!resp.ok) {
-      let errorMessage: string;
-      try {
-        const errorBody = (await resp.json()) as { error?: string };
-        errorMessage = errorBody.error ?? `Request failed with status ${resp.status}`;
-      } catch {
-        errorMessage = `Request failed with status ${resp.status}`;
-      }
-      throw new Error(errorMessage);
-    }
-
-    return (await resp.json()) as T;
+    return this.request<T>(endpoint, method, body, false);
   }
 }
 
-export const listFiles = async (folder?: string): Promise<ListFilesResult> =>
-  DriveApiClient.call<ListFilesResult>('/upload', { action: 'list', folder });
-
-export const createFolder = async (
-  folderName: string,
-  path?: string
-): Promise<CreateFolderResult> =>
-  DriveApiClient.call<CreateFolderResult>('/upload', {
-    action: 'create-folder',
-    folderName,
-    path
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
   });
+}
 
-export const deleteFolder = async (path: string): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', { action: 'delete-folder', path });
+function normalizePath(path?: string): string {
+  if (!path || path === '/') return '/';
+  const trimmed = path.trim();
+  if (!trimmed) return '/';
+  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
+  const normalized = withLeadingSlash.replace(/\/+/g, '/').replace(/\/$/, '');
+  return normalized || '/';
+}
+
+function joinChildPath(parentPath: string, childName: string): string {
+  return parentPath === '/' ? `/${childName}` : `${parentPath}/${childName}`;
+}
+
+function principalPath(value: string): string {
+  const raw = value.trim();
+  if (raw.startsWith('email:') || raw.startsWith('user_sub:')) {
+    return raw;
+  }
+  return raw.includes('@') ? `email:${raw}` : `user_sub:${raw}`;
+}
+
+async function listFolderChildrenById(folderId: string, cursor?: string): Promise<PagedItems<V2FolderChildItem>> {
+  const query = new URLSearchParams();
+  query.set('limit', '200');
+  if (cursor) query.set('cursor', cursor);
+
+  return DriveApiClient.authRequest<PagedItems<V2FolderChildItem>>(
+    `/v2/folders/${encodeURIComponent(folderId)}/children?${query.toString()}`,
+    'GET'
+  );
+}
+
+async function listAllFolderChildren(folderId: string): Promise<V2FolderChildItem[]> {
+  const out: V2FolderChildItem[] = [];
+  let cursor: string | undefined;
+
+  do {
+    const page = await listFolderChildrenById(folderId, cursor);
+    if (Array.isArray(page.items)) out.push(...page.items);
+    cursor = page.nextCursor || undefined;
+  } while (cursor);
+
+  return out;
+}
+
+async function resolveFolderIdByPath(path?: string): Promise<string> {
+  const normalizedPath = normalizePath(path);
+  const cached = folderPathCache.get(normalizedPath);
+  if (cached) return cached;
+
+  if (normalizedPath === '/') {
+    folderPathCache.set('/', ROOT_FOLDER_ID);
+    return ROOT_FOLDER_ID;
+  }
+
+  const segments = normalizedPath.split('/').filter(Boolean);
+  let currentId = ROOT_FOLDER_ID;
+  let currentPath = '/';
+
+  for (const segment of segments) {
+    const children = await listAllFolderChildren(currentId);
+    const folder = children.find((item) => item.type === 'folder' && item.name === segment);
+    if (!folder?.folderId) {
+      throw new Error(`Folder not found: ${normalizedPath}`);
+    }
+    currentId = folder.folderId;
+    currentPath = joinChildPath(currentPath, segment);
+    folderPathCache.set(currentPath, currentId);
+  }
+
+  return currentId;
+}
+
+async function fetchAllPages<T>(
+  routeFactory: (cursor?: string) => string,
+  mapper: (item: T) => void
+): Promise<void> {
+  let cursor: string | undefined;
+  do {
+    const page = await DriveApiClient.authRequest<PagedItems<T>>(routeFactory(cursor), 'GET');
+    if (Array.isArray(page.items)) {
+      for (const item of page.items) mapper(item);
+    }
+    cursor = page.nextCursor || undefined;
+  } while (cursor);
+}
+
+export const listFiles = async (folder?: string): Promise<ListFilesResult> => {
+  const currentPath = normalizePath(folder);
+  const folderId = await resolveFolderIdByPath(currentPath);
+  const items = await listAllFolderChildren(folderId);
+
+  const files = items
+    .filter((item) => item.type === 'file' && item.fileId && item.name)
+    .map((item) => ({
+      fileId: item.fileId as string,
+      filename: item.name as string,
+      size: Number(item.size ?? 0),
+      createdAt: (item.createdAt || item.updatedAt || '') as string,
+      isShared: Boolean(item.isShared),
+      hasPublicLink: Boolean(item.hasPublicLink),
+    }));
+
+  const folders = items
+    .filter((item) => item.type === 'folder' && item.folderId && item.name)
+    .map((item) => {
+      const pathValue = joinChildPath(currentPath, item.name as string);
+      folderPathCache.set(pathValue, item.folderId as string);
+      return {
+        folderId: item.folderId as string,
+        name: item.name as string,
+        path: pathValue,
+        createdAt: item.createdAt,
+      };
+    });
+
+  return { files, folders };
+};
+
+export const createFolder = async (folderName: string, path?: string): Promise<CreateFolderResult> => {
+  const parentPath = normalizePath(path);
+  const parentFolderId = await resolveFolderIdByPath(parentPath);
+
+  const result = await DriveApiClient.authRequest<{
+    folderId?: string;
+    name?: string;
+  }>(`/v2/folders/${encodeURIComponent(parentFolderId)}/folders`, 'POST', { name: folderName });
+
+  const createdName = result.name ?? folderName;
+  const createdPath = joinChildPath(parentPath, createdName);
+  if (result.folderId) folderPathCache.set(createdPath, result.folderId);
+
+  return {
+    folderId: result.folderId,
+    folderName: createdName,
+    path: createdPath,
+  };
+};
+
+export const deleteFolder = async (path: string): Promise<ApiResult> => {
+  const folderId = await resolveFolderIdByPath(path);
+  const result = await DriveApiClient.authRequest<ApiResult>(`/v2/folders/${encodeURIComponent(folderId)}`, 'DELETE');
+  resetFolderPathCache();
+  return result;
+};
 
 const getUploadUrl = async (
   filename: string,
   contentType: string,
   size: number,
   path?: string
-): Promise<UploadUrlResult> =>
-  DriveApiClient.call<UploadUrlResult>('/upload', {
+): Promise<UploadUrlResult> => {
+  const parentFolderId = await resolveFolderIdByPath(path);
+
+  return DriveApiClient.authRequest<UploadUrlResult>('/v2/files/uploads', 'POST', {
     filename,
     contentType,
     size,
-    ...(path !== undefined && path !== '' ? { path } : {})
+    parentFolderId,
   });
+};
+
+const finalizeUpload = async (fileId: string): Promise<void> => {
+  await DriveApiClient.authRequest<ApiResult>(
+    `/v2/files/${encodeURIComponent(fileId)}/finalize`,
+    'POST',
+    {}
+  );
+};
 
 export const uploadFile = async (
   file: File,
@@ -224,12 +418,7 @@ export const uploadFile = async (
     contentType = 'application/pdf';
   }
 
-  const { uploadUrl, fileId, error } = await getUploadUrl(
-    file.name,
-    contentType,
-    file.size,
-    folderPath
-  );
+  const { uploadUrl, fileId, error } = await getUploadUrl(file.name, contentType, file.size, folderPath);
   if (error || !uploadUrl || !fileId) {
     throw new Error(error || 'Upload URL not available');
   }
@@ -287,113 +476,239 @@ export const uploadFile = async (
     xhr.send(file);
   });
 
+  await finalizeUpload(fileId);
   return fileId;
 };
 
 export const getDownloadUrl = async (fileId: string): Promise<DownloadUrlResult> =>
-  DriveApiClient.call<DownloadUrlResult>('/download', { fileId });
+  DriveApiClient.authRequest<DownloadUrlResult>(`/v2/download/files/${encodeURIComponent(fileId)}`, 'POST', {});
 
 export const createDownloadZip = async (
   fileIds: string[],
   folderPaths: string[]
-): Promise<CreateDownloadZipResult> =>
-  DriveApiClient.call<CreateDownloadZipResult>('/zip', { fileIds, folderPaths });
+): Promise<CreateDownloadZipResult> => {
+  const folderIds: string[] = [];
+  for (const path of folderPaths) {
+    folderIds.push(await resolveFolderIdByPath(path));
+  }
+
+  const created = await DriveApiClient.authRequest<V2ArchiveCreateResult>('/v2/download/archives', 'POST', {
+    fileIds,
+    folderIds,
+  });
+
+  if (created.error || !created.archiveJobId) {
+    throw new Error(created.error || 'Failed to create archive job');
+  }
+
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < ARCHIVE_POLL_TIMEOUT_MS) {
+    const status = await DriveApiClient.authRequest<V2ArchiveStatusResult>(
+      `/v2/download/archives/${encodeURIComponent(created.archiveJobId)}`,
+      'GET'
+    );
+
+    if (status.status === 'ready' && status.downloadUrl) {
+      return { downloadUrl: status.downloadUrl, expiresIn: status.expiresIn };
+    }
+
+    if (status.status === 'failed' || status.status === 'expired') {
+      throw new Error(status.errorMessage || `Archive ${status.status}`);
+    }
+
+    await sleep(ARCHIVE_POLL_INTERVAL_MS);
+  }
+
+  throw new Error('Archive generation timed out');
+};
 
 export const deleteFile = async (fileId: string): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', { action: 'delete', fileId });
+  DriveApiClient.authRequest<ApiResult>(`/v2/files/${encodeURIComponent(fileId)}`, 'DELETE');
 
-export const moveFile = async (fileId: string, destinationPath: string): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', { action: 'move-file', fileId, destinationPath });
+export const moveFile = async (fileId: string, destinationPath: string): Promise<ApiResult> => {
+  const destinationFolderId = await resolveFolderIdByPath(destinationPath);
+  return DriveApiClient.authRequest<ApiResult>(`/v2/files/${encodeURIComponent(fileId)}`, 'PATCH', {
+    destinationFolderId,
+  });
+};
 
 export const renameFile = async (fileId: string, newName: string): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', { action: 'rename-file', fileId, newName });
+  DriveApiClient.authRequest<ApiResult>(`/v2/files/${encodeURIComponent(fileId)}`, 'PATCH', { newName });
 
-export const moveFolder = async (folderPath: string, destinationPath: string): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', { action: 'move-folder', folderPath, destinationPath });
+export const moveFolder = async (folderPath: string, destinationPath: string): Promise<ApiResult> => {
+  const folderId = await resolveFolderIdByPath(folderPath);
+  const destinationFolderId = await resolveFolderIdByPath(destinationPath);
+  const result = await DriveApiClient.authRequest<ApiResult>(`/v2/folders/${encodeURIComponent(folderId)}`, 'PATCH', {
+    destinationFolderId,
+  });
+  resetFolderPathCache();
+  return result;
+};
 
-export const renameFolder = async (folderPath: string, newName: string): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', { action: 'rename-folder', folderPath, newName });
+export const renameFolder = async (folderPath: string, newName: string): Promise<ApiResult> => {
+  const folderId = await resolveFolderIdByPath(folderPath);
+  const result = await DriveApiClient.authRequest<ApiResult>(`/v2/folders/${encodeURIComponent(folderId)}`, 'PATCH', {
+    newName,
+  });
+  resetFolderPathCache();
+  return result;
+};
 
-export const listSharedWithMe = async (): Promise<SharedWithMeResult> =>
-  DriveApiClient.call<SharedWithMeResult>('/upload', { action: 'shared-with-me' });
+export const listSharedWithMe = async (): Promise<SharedWithMeResult> => {
+  const files: SharedWithMeResult['files'] = [];
+
+  await fetchAllPages<V2FolderChildItem>(
+    (cursor) => {
+      const query = new URLSearchParams();
+      query.set('limit', '200');
+      if (cursor) query.set('cursor', cursor);
+      return `/v2/shares/inbound?${query.toString()}`;
+    },
+    (item) => {
+      files?.push({
+        fileId: String(item.fileId || ''),
+        sharedBy: String(item.ownerId || ''),
+        sharedByEmail: String(item.ownerEmail || ''),
+        filename: String(item.filename || item.name || ''),
+        permission: String(item.permission || 'read'),
+        expiresAt: String(item.expiresAt || ''),
+      });
+    }
+  );
+
+  return { files };
+};
 
 export const shareFile = async (
   fileId: string,
   shareWithEmail: string,
   permission: string,
   expiryDays?: number
-): Promise<ShareFileResult> =>
-  DriveApiClient.call<ShareFileResult>('/upload', {
-    action: 'share',
-    fileId,
-    shareWithEmail,
-    permission,
-    ...(expiryDays !== undefined ? { expiryDays } : {})
-  });
+): Promise<ShareFileResult> => {
+  const principal = principalPath(shareWithEmail);
+  const result = await DriveApiClient.authRequest<{
+    fileId?: string;
+    expiresAt?: string;
+  }>(
+    `/v2/files/${encodeURIComponent(fileId)}/shares/${encodeURIComponent(principal)}`,
+    'PUT',
+    {
+      permission,
+      ...(expiryDays !== undefined ? { expiryDays } : {}),
+    }
+  );
 
-export const listFileShares = async (fileId: string): Promise<ListFileSharesResult> =>
-  DriveApiClient.call<ListFileSharesResult>('/upload', { action: 'list-shares', fileId });
+  return {
+    message: 'Shared successfully',
+    fileId: result.fileId ?? fileId,
+    sharedWith: shareWithEmail,
+    expiresAt: result.expiresAt,
+  };
+};
 
-export const unshareFile = async (fileId: string, revokeUserId: string): Promise<UnshareResult> =>
-  DriveApiClient.call<UnshareResult>('/upload', { action: 'unshare', fileId, revokeUserId });
+export const listFileShares = async (fileId: string): Promise<ListFileSharesResult> => {
+  const shares: ListFileSharesResult['shares'] = [];
+
+  await fetchAllPages<V2FolderChildItem>(
+    (cursor) => {
+      const query = new URLSearchParams();
+      query.set('limit', '200');
+      if (cursor) query.set('cursor', cursor);
+      return `/v2/files/${encodeURIComponent(fileId)}/shares?${query.toString()}`;
+    },
+    (item) => {
+      shares?.push({
+        sharedWith: String(item.principalDisplay || item.principalValue || ''),
+        permission: String(item.permission || 'read'),
+        sharedAt: String(item.sharedAt || item.createdAt || ''),
+        expiresAt: String(item.expiresAt || ''),
+      });
+    }
+  );
+
+  return { shares };
+};
+
+export const unshareFile = async (fileId: string, revokeUserId: string): Promise<UnshareResult> => {
+  const principal = principalPath(revokeUserId);
+  await DriveApiClient.authRequest<ApiResult>(
+    `/v2/files/${encodeURIComponent(fileId)}/shares/${encodeURIComponent(principal)}`,
+    'DELETE'
+  );
+
+  return { message: 'Share revoked', fileId, revokedUser: revokeUserId };
+};
 
 export const updateSharePermission = async (
   fileId: string,
   targetUserId: string,
   permission: string
-): Promise<UpdateShareResult> =>
-  DriveApiClient.call<UpdateShareResult>('/upload', {
-    action: 'update-share',
-    fileId,
-    targetUserId,
-    permission
-  });
+): Promise<UpdateShareResult> => {
+  const principal = principalPath(targetUserId);
+  await DriveApiClient.authRequest<ApiResult>(
+    `/v2/files/${encodeURIComponent(fileId)}/shares/${encodeURIComponent(principal)}`,
+    'PATCH',
+    { permission }
+  );
 
-// ---------------------------------------------------------------------------
-// Public link CRUD (authenticated)
-// ---------------------------------------------------------------------------
+  return { message: 'Permission updated', fileId, targetUserId, permission };
+};
 
 export const createPublicLink = async (
   fileId: string,
   password?: string,
   expiryDays?: number
 ): Promise<CreatePublicLinkResult> =>
-  DriveApiClient.call<CreatePublicLinkResult>('/upload', {
-    action: 'create-public-link',
-    fileId,
-    ...(password ? { password } : {}),
-    ...(expiryDays !== undefined ? { expiryDays } : {}),
-  });
+  DriveApiClient.authRequest<CreatePublicLinkResult>(
+    `/v2/files/${encodeURIComponent(fileId)}/public-links`,
+    'POST',
+    {
+      ...(password ? { password } : {}),
+      ...(expiryDays !== undefined ? { expiryDays } : {}),
+    }
+  );
 
-export const listPublicLinks = async (fileId: string): Promise<ListPublicLinksResult> =>
-  DriveApiClient.call<ListPublicLinksResult>('/upload', { action: 'list-public-links', fileId });
+export const listPublicLinks = async (fileId: string): Promise<ListPublicLinksResult> => {
+  const links: NonNullable<ListPublicLinksResult['links']> = [];
+
+  await fetchAllPages<V2FolderChildItem>(
+    (cursor) => {
+      const query = new URLSearchParams();
+      query.set('limit', '200');
+      if (cursor) query.set('cursor', cursor);
+      return `/v2/files/${encodeURIComponent(fileId)}/public-links?${query.toString()}`;
+    },
+    (item) => {
+      links.push({
+        token: String(item.token || ''),
+        fileId,
+        filename: String(item.filename || ''),
+        hasPassword: Boolean(item.hasPassword),
+        downloadCount: Number(item.downloadCount ?? 0),
+        createdAt: String(item.createdAt || ''),
+        expiresAt: String(item.expiresAt || ''),
+      });
+    }
+  );
+
+  return { links };
+};
 
 export const deletePublicLink = async (token: string): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', { action: 'delete-public-link', token });
+  DriveApiClient.authRequest<ApiResult>(`/v2/public-links/${encodeURIComponent(token)}`, 'DELETE');
 
 export const updatePublicLink = async (
   token: string,
   options: { password?: string; removePassword?: boolean; expiryDays?: number }
 ): Promise<ApiResult> =>
-  DriveApiClient.call<ApiResult>('/upload', {
-    action: 'update-public-link',
-    token,
-    ...options,
-  });
-
-// ---------------------------------------------------------------------------
-// Public download (unauthenticated)
-// ---------------------------------------------------------------------------
+  DriveApiClient.authRequest<ApiResult>(`/v2/public-links/${encodeURIComponent(token)}`, 'PATCH', options);
 
 export const getPublicLinkInfo = async (token: string): Promise<PublicLinkInfoResult> =>
-  DriveApiClient.publicCall<PublicLinkInfoResult>(`/public/${encodeURIComponent(token)}`, 'GET');
+  DriveApiClient.publicCall<PublicLinkInfoResult>(`/v2/public-links/${encodeURIComponent(token)}`, 'GET');
 
-export const downloadPublicLink = async (
-  token: string,
-  password?: string
-): Promise<PublicDownloadResult> =>
+export const downloadPublicLink = async (token: string, password?: string): Promise<PublicDownloadResult> =>
   DriveApiClient.publicCall<PublicDownloadResult>(
-    `/public/${encodeURIComponent(token)}`,
+    `/v2/public-links/${encodeURIComponent(token)}/download`,
     'POST',
     password ? { password } : {}
   );
