@@ -24,6 +24,7 @@ export function AuthForm({ onAuthenticated }: AuthFormProps): React.ReactElement
   const [authMode, setAuthMode] = useState<AuthMode>('login');
   const [pendingEmail, setPendingEmail] = useState('');
   const [error, setError] = useState('');
+  const [notice, setNotice] = useState('');
 
   const handleLogin = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
@@ -40,12 +41,18 @@ export function AuthForm({ onAuthenticated }: AuthFormProps): React.ReactElement
   const handleRegister = async (event: FormEvent<HTMLFormElement>): Promise<void> => {
     event.preventDefault();
     setError('');
+    setNotice('');
     try {
-      await register(email, password);
+      const { confirmationRequired } = await register(email, password);
       setPendingEmail(email);
-      setAuthMode('confirm');
-      setEmail('');
       setPassword('');
+      if (confirmationRequired) {
+        setAuthMode('confirm');
+        setEmail('');
+      } else {
+        setAuthMode('login');
+        setNotice('Account created. You can now log in.');
+      }
     } catch (caughtError: unknown) {
       const message = caughtError instanceof Error ? caughtError.message : 'Registration failed';
       setError(message);
@@ -116,6 +123,7 @@ export function AuthForm({ onAuthenticated }: AuthFormProps): React.ReactElement
                 />
               )}
 
+                      {notice && <Alert severity="success">{notice}</Alert>}
               {error && <Alert severity="error">{error}</Alert>}
 
               <Button type="submit" size="large" variant="contained">

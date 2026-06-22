@@ -1,16 +1,18 @@
-# Frontend - Personal Cloud Storage
+# Frontend — Personal Cloud Storage
 
-React + TypeScript web client for the cloud storage backend.
+React + TypeScript web client. In production it is built and served by the
+FastAPI backend (same origin); for development it can run standalone against a
+local backend.
 
 ## Tech stack
 
 - React 18 + TypeScript
 - MUI + MUI X Data Grid
-- `amazon-cognito-identity-js` for auth
+- Built-in email/password auth (JWT stored in `localStorage`)
 
 ## Implemented UX
 
-- Login/register/confirm with Cognito
+- Login / register (email confirmation optional, off by default)
 - My files + Shared with me tabs
 - Folder tree navigation
 - Grid and list views (persisted preference)
@@ -19,56 +21,31 @@ React + TypeScript web client for the cloud storage backend.
 - Drag/drop upload (files and folders) with progress + cancel
 - Share dialog (user shares + public links)
 - Public link page at `/s/{token}` for unauthenticated downloads
-- Image thumbnails with presigned URL cache
 - Recent and frequent files (localStorage)
 
 ## Local development
 
-### 1. Configure environment
-
 ```bash
-cp .env.example .env
+cp .env.example .env        # REACT_APP_API_ENDPOINT=http://localhost:8000
+npm install --legacy-peer-deps
+npm start                   # http://localhost:3000
 ```
 
-Set at least:
-- `REACT_APP_API_ENDPOINT`
-- `REACT_APP_USER_POOL_ID`
-- `REACT_APP_COGNITO_CLIENT_ID`
-- `REACT_APP_REGION`
-
-### 2. Install and run
-
-```bash
-npm install
-npm start
-```
-
-App runs at [http://localhost:3000](http://localhost:3000).
+`REACT_APP_API_ENDPOINT` is the only setting; leave it empty for same-origin
+(production) and point it at your backend for dev.
 
 ## Build
 
 ```bash
-npm run build
+CI=false npm run build      # output in build/ (copied into the Docker image)
 ```
-
-## Deploy (S3 + CloudFront)
-
-```bash
-cp .env.example .env
-./deploy.sh
-```
-
-Deploy script behavior:
-- deploys `cloudformation_hosting.yaml`
-- builds the app
-- syncs `build/` to S3
-- invalidates CloudFront cache
 
 ## Key source files
 
-- App shell: `/Users/adonev/workspace/cloud-storage-system/frontend/src/App.tsx`
-- API client: `/Users/adonev/workspace/cloud-storage-system/frontend/src/api.ts`
-- Business services: `/Users/adonev/workspace/cloud-storage-system/frontend/src/service/driveService.ts`
-- Upload engine: `/Users/adonev/workspace/cloud-storage-system/frontend/src/hooks/useUploadManager.ts`
-- Share/public-link UI: `/Users/adonev/workspace/cloud-storage-system/frontend/src/components/ShareDialog.tsx`
-- Public download page: `/Users/adonev/workspace/cloud-storage-system/frontend/src/components/PublicDownloadPage.tsx`
+- App shell: `src/App.tsx`
+- API client: `src/api.ts`
+- Auth client: `src/auth.ts`
+- Business services: `src/service/driveService.ts`
+- Upload engine: `src/hooks/useUploadManager.ts`
+- Share/public-link UI: `src/components/ShareDialog.tsx`
+- Public download page: `src/components/PublicDownloadPage.tsx`

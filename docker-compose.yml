@@ -1,0 +1,44 @@
+# Split-service deployment (recommended for production): the app container and
+# a dedicated PostgreSQL container, each with its own named volume so data
+# survives `docker compose down` and image rebuilds.
+#
+# For the literal "single image" deployment, use the Dockerfile directly with
+# embedded PostgreSQL (see docs/DEPLOYMENT.md).
+
+services:
+  db:
+    image: postgres:15
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: drive
+      POSTGRES_PASSWORD: ${DRIVE_PG_PASSWORD:-drive}
+      POSTGRES_DB: drive
+    volumes:
+      - db_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U drive"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      # Use the external db service instead of the embedded PostgreSQL.
+      DRIVE_EMBEDDED_PG: "false"
+      DRIVE_DATABASE_URL: postgresql+psycopg2://drive:${DRIVE_PG_PASSWORD:-drive}@db:5432/drive
+      DRIVE_SECRET_KEY: ${DRIVE_SECRET_KEY:?Set DRIVE_SECRET_KEY in a .env file}
+      DRIVE_STORAGE_DIR: /data/blobs
+      DRIVE_CORS_ALLOW_ORIGINS: ${DRIVE_CORS_ALLOW_ORIGINS:-*}
+    volumes:
+      - blob_data:/data/blobs
+    ports:
+      - "${DRIVE_PORT:-8000}:8000"
+
+volumes:
+  db_data:
+  blob_data:

@@ -1,97 +1,85 @@
 # Personal Cloud Storage System
 
-Serverless personal cloud storage (Google Drive style) built on AWS.
+A self-hosted, Google-Drive-style file manager that runs as **a single Docker
+image on one server**. No cloud account required.
 
-## What is implemented
+## Features
 
-- Email/password auth with Amazon Cognito (register, confirm, login)
-- File uploads with presigned S3 URLs
-- Folder hierarchy (create, move, rename, delete-empty)
-- File operations (list, move, rename, delete)
-- Sharing to specific users (with permission + expiry)
-- Public links with optional password and expiry
-- Public download page at `/s/{token}` (no login required)
-- Bulk ZIP download for selected files/folders
-- Grid/list views, context menu, drag/drop move, drag/drop upload
-- Upload progress + cancellation
+- Email/password accounts with JWT sessions
+- File uploads, folder hierarchy (create / move / rename / delete)
+- Sharing to specific users with permission (read / download / edit) + expiry
+- Public links with optional password and expiry, plus a no-login download page
+- Bulk ZIP download of selected files/folders (async, in-process worker)
+- Grid/list views, context menu, drag/drop move, drag/drop upload, progress + cancel
 
-## Architecture at a glance
+## Stack
 
-- **Frontend:** React + TypeScript + MUI
-- **API:** API Gateway HTTP API + JWT authorizer
-- **Auth:** Cognito User Pool
-- **Compute:** 8 Python Lambdas (domain-split v2 API + async archive worker)
-- **Storage:** S3 (encrypted, versioned, lifecycle rules)
-- **Metadata/ACL:** DynamoDB `MetadataTableV2` (single-table design with GSIs + TTL)
-- **Hosting:** S3 + CloudFront (private origin via OAC)
+- **Frontend:** React + TypeScript + MUI (served by the backend in production)
+- **Backend:** FastAPI (Python 3.11), one router per domain
+- **Database:** PostgreSQL (SQLite for local dev/tests) via SQLAlchemy
+- **Storage:** local filesystem, accessed through short-lived signed URLs
+- **Packaging:** one Docker image; all state on a mounted volume
 
-For full details, see `/Users/adonev/workspace/cloud-storage-system/docs/ARCHITECTURE.md`.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for how this maps from the
+original AWS serverless design.
+
+## Quick start (Docker)
+
+```bash
+git clone https://github.com/nasko05/cloud-storage-system.git
+cd cloud-storage-system
+
+echo "DRIVE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" > .env
+
+docker build -t personal-drive .
+mkdir -p data
+docker run -d --name drive --restart unless-stopped \
+  -p 8000:8000 -v "$(pwd)/data:/data" --env-file .env personal-drive
+```
+
+Open <http://localhost:8000>, register, and start uploading. Data persists in
+`./data` across rebuilds. Full server setup, HTTPS, compose, backups and
+migration: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+
+## Local development
+
+Backend (SQLite, auto-reload):
+
+```bash
+cd backend
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt
+DRIVE_SECRET_KEY=dev DRIVE_SERVE_FRONTEND=false uvicorn app.main:app --reload
+```
+
+Frontend (against the backend above):
+
+```bash
+cd frontend
+cp .env.example .env        # REACT_APP_API_ENDPOINT=http://localhost:8000
+npm install --legacy-peer-deps
+npm start                   # http://localhost:3000
+```
+
+## Tests
+
+```bash
+cd backend && python -m pytest tests/ -q      # backend API/contract tests
+cd frontend && CI=false npm run build         # frontend type-check + build
+```
 
 ## Repository layout
 
 ```text
 cloud-storage-system/
-|-- .aws/config.example
-|-- backend/
-|   |-- cloudformation_stack.yaml
-|   |-- deploy.sh
-|   `-- lambdas/
-|-- frontend/
-|   |-- cloudformation_hosting.yaml
-|   |-- deploy.sh
-|   `-- src/
-`-- docs/
-    |-- ARCHITECTURE.md
-    `-- ROADMAP.md
+├── Dockerfile              # single all-in-one image (app + embedded PostgreSQL)
+├── docker-compose.yml      # split app + PostgreSQL alternative
+├── docker/entrypoint.sh    # boots embedded DB then the app
+├── backend/                # FastAPI application + tests
+│   └── app/                # config, models, routers, services, cli, ...
+├── frontend/               # React + TypeScript UI
+└── docs/                   # ARCHITECTURE.md, DEPLOYMENT.md
 ```
-
-## Quick start
-
-### 1. Configure AWS CLI profile
-
-Copy/merge `.aws/config.example` into `~/.aws/config`, then authenticate:
-
-```bash
-aws sso login --profile adonev-login
-```
-
-### 2. Deploy backend
-
-```bash
-cd backend
-cp .env.example .env
-./deploy.sh
-```
-
-Save stack outputs:
-- `ApiEndpoint`
-- `UserPoolId`
-- `UserPoolClientId`
-
-### 3. Run frontend locally
-
-```bash
-cd frontend
-cp .env.example .env
-# fill REACT_APP_API_ENDPOINT / REACT_APP_USER_POOL_ID / REACT_APP_COGNITO_CLIENT_ID
-npm install
-npm start
-```
-
-Open [http://localhost:3000](http://localhost:3000).
-
-### 4. Deploy frontend hosting (optional)
-
-```bash
-cd frontend
-./deploy.sh
-```
-
-## Docs
-
-- Architecture deep dive: `/Users/adonev/workspace/cloud-storage-system/docs/ARCHITECTURE.md`
-- Backend details: `/Users/adonev/workspace/cloud-storage-system/backend/README.md`
-- Frontend details: `/Users/adonev/workspace/cloud-storage-system/frontend/README.md`
 
 ## License
 
