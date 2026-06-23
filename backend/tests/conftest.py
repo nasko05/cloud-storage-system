@@ -15,6 +15,13 @@ os.environ.setdefault("DRIVE_SECRET_KEY", "test-secret")
 os.environ.setdefault("DRIVE_SERVE_FRONTEND", "false")
 os.environ.setdefault("DRIVE_DATABASE_URL", f"sqlite:///{_TMP}/test.db")
 os.environ.setdefault("DRIVE_STORAGE_DIR", f"{_TMP}/blobs")
+os.environ.setdefault("DRIVE_BACKUP_DIR", f"{_TMP}/backups")
+# Tests create tables directly from the models (fast); migrations are exercised
+# separately. Antivirus/quota stay disabled unless a test opts in.
+os.environ.setdefault("DRIVE_RUN_MIGRATIONS", "false")
+# Tests drive cleanup/backup directly; keep the periodic scheduler off so it
+# doesn't touch the shared SQLite database mid-test.
+os.environ.setdefault("DRIVE_ENABLE_SCHEDULER", "false")
 
 import pytest  # noqa: E402
 from fastapi.testclient import TestClient  # noqa: E402

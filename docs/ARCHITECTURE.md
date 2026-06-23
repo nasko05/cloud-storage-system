@@ -55,6 +55,13 @@ with a self-contained equivalent so the whole thing runs from one image:
 - **Portability.** The data layer is plain SQLAlchemy, so the same code runs on
   SQLite (local dev / tests) and PostgreSQL (production), and the export/import
   CLI snapshot round-trips between them.
+- **Migrations.** Schema is managed by Alembic; the app runs `alembic upgrade
+  head` on startup (tests create tables directly from the models).
+- **Background workers.** Two daemon threads run in-process: the archive ZIP
+  worker, and a maintenance scheduler that purges expired rows and writes a
+  verified daily backup (DB + blobs) to the backup volume, retaining the last N.
+- **Safety rails.** Optional per-user storage quota, optional ClamAV upload
+  scanning, and login rate-limiting/lockout — all off or zero-config by default.
 
 ## Layout
 
@@ -67,10 +74,16 @@ backend/app/
   schemas.py         # Pydantic request models
   security.py        # password hashing, JWT, signed blob tokens
   storage.py         # local filesystem blob store
-  services.py        # shared queries (ownership, conflicts, flags)
+  services.py        # shared queries (ownership, conflicts, flags, usage)
   idempotency.py     # Idempotency-Key support
   archive.py         # in-process ZIP worker
-  cli.py             # export / import management commands
+  maintenance.py     # cleanup sweep + scheduled backups
+  backup.py          # backup/restore bundles (DB + blobs, checksummed)
+  dbio.py            # portable JSON export/import
+  antivirus.py       # optional ClamAV scanning
+  ratelimit.py       # login rate-limit / lockout
+  cli.py             # init / export / import / backup / restore
+  migrations/        # Alembic environment + versions
   routers/           # auth, files, folders, shares, public_links,
                      # download, public_download, archive, blobs
 ```

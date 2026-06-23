@@ -16,7 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import archive
+from . import archive, maintenance
 from .config import settings
 from .database import init_db
 from .errors import ApiError, api_error_handler, unhandled_error_handler
@@ -38,8 +38,11 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name
 @asynccontextmanager
 async def lifespan(_app: FastAPI):
     settings.storage_dir.mkdir(parents=True, exist_ok=True)
+    settings.backup_dir.mkdir(parents=True, exist_ok=True)
     init_db()
     archive.start_worker()
+    if settings.enable_scheduler:
+        maintenance.start_scheduler()
     yield
 
 

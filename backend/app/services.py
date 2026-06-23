@@ -58,6 +58,14 @@ def folder_exists_for_owner(db: Session, user_id: str, folder_id: str) -> bool:
     return folder is not None and folder.owner_id == user_id
 
 
+def user_storage_usage(db: Session, user_id: str, *, exclude_file_id: str | None = None) -> int:
+    """Total bytes stored by a user (sum of file sizes)."""
+    stmt = select(func.coalesce(func.sum(File.size), 0)).where(File.owner_id == user_id)
+    if exclude_file_id is not None:
+        stmt = stmt.where(File.id != exclude_file_id)
+    return int(db.scalar(stmt) or 0)
+
+
 # --- Invariants -------------------------------------------------------------
 
 def name_conflict(

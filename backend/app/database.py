@@ -35,18 +35,34 @@ engine = create_engine(settings.database_url, **_engine_kwargs(settings.database
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
 
 
-def init_db(retries: int = 15, delay: float = 2.0) -> None:
-    """Create all tables, waiting for the database to accept connections.
+def _upgrade_to_head() -> None:
+    from pathlib import Path
 
-    The app container can start before the PostgreSQL container is ready, so we
-    retry the initial connection a handful of times before giving up.
+    from alembic import command
+    from alembic.config import Config
+
+    ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
+    cfg = Config(str(ini_path))
+    cfg.set_main_option("sqlalchemy.url", settings.database_url)
+    command.upgrade(cfg, "head")
+
+
+def init_db(retries: int = 15, delay: float = 2.0) -> None:
+    """Bring the schema up to date, waiting for the database to be reachable.
+
+    In production (``run_migrations=True``) this applies Alembic migrations; in
+    tests it creates tables directly from the models. The app container can start
+    before PostgreSQL is ready, so the initial connection is retried.
     """
     from . import models  # noqa: F401  (register mappers)
 
     last_error: Exception | None = None
     for attempt in range(1, retries + 1):
         try:
-            Base.metadata.create_all(bind=engine)
+            if settings.run_migrations:
+                _upgrade_to_head()
+            else:
+                Base.metadata.create_all(bind=engine)
             return
         except OperationalError as error:
             last_error = error

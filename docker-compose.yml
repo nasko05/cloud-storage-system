@@ -1,6 +1,7 @@
 # Production deployment: the FastAPI app plus a dedicated PostgreSQL container,
 # each with its own named volume so data survives `docker compose down` and
-# image rebuilds.
+# image rebuilds. An optional ClamAV service can be enabled with the `antivirus`
+# profile: `docker compose --profile antivirus up -d`.
 
 services:
   db:
@@ -28,12 +29,38 @@ services:
       DRIVE_DATABASE_URL: postgresql+psycopg2://drive:${DRIVE_PG_PASSWORD:-drive}@db:5432/drive
       DRIVE_SECRET_KEY: ${DRIVE_SECRET_KEY:?Set DRIVE_SECRET_KEY in a .env file}
       DRIVE_STORAGE_DIR: /data/blobs
+      DRIVE_BACKUP_DIR: /data/backups
       DRIVE_CORS_ALLOW_ORIGINS: ${DRIVE_CORS_ALLOW_ORIGINS:-*}
+      # Per-user quota in bytes (0 = unlimited).
+      DRIVE_USER_QUOTA_BYTES: ${DRIVE_USER_QUOTA_BYTES:-0}
+      # Backups (daily by default, keep last 10).
+      DRIVE_BACKUP_INTERVAL_HOURS: ${DRIVE_BACKUP_INTERVAL_HOURS:-24}
+      DRIVE_BACKUP_RETENTION: ${DRIVE_BACKUP_RETENTION:-10}
+      # Antivirus: set to true and start the `antivirus` profile to enable.
+      DRIVE_CLAMAV_ENABLED: ${DRIVE_CLAMAV_ENABLED:-false}
+      DRIVE_CLAMAV_HOST: clamav
+      DRIVE_CLAMAV_PORT: "3310"
     volumes:
       - blob_data:/data/blobs
+      - backup_data:/data/backups
     ports:
       - "${DRIVE_PORT:-8000}:8000"
+
+  clamav:
+    image: clamav/clamav:1.3
+    restart: unless-stopped
+    profiles: ["antivirus"]
+    volumes:
+      - clamav_data:/var/lib/clamav
+    healthcheck:
+      test: ["CMD-SHELL", "clamdscan --version || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 120s
 
 volumes:
   db_data:
   blob_data:
+  backup_data:
+  clamav_data:

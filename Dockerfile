@@ -27,10 +27,11 @@ COPY backend/requirements.txt ./
 RUN pip install -r requirements.txt
 
 COPY backend/app ./app
+COPY backend/alembic.ini ./alembic.ini
 COPY --from=frontend /frontend/build ./static
 
 RUN useradd -r -u 10001 -m appuser \
-    && mkdir -p /data/blobs \
+    && mkdir -p /data/blobs /data/backups \
     && chown -R appuser:appuser /data /app
 USER appuser
 

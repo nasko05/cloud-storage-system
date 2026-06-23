@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Header, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
-from .. import storage
+from .. import antivirus, storage
 from ..blob_links import build_upload_url
 from ..config import settings
 from ..deps import CurrentUser, get_current_user, get_db
@@ -14,24 +14,23 @@ from ..errors import ApiError
 from ..idempotency import run_idempotent
 from ..models import File
 from ..schemas import CreateUploadRequest, PatchFileRequest
-from ..services import name_conflict, folder_exists_for_owner, require_owned_file
-from ..utils import iso
+from ..services import (
+    folder_exists_for_owner,
+    name_conflict,
+    require_owned_file,
+    user_storage_usage,
+)
 from ..validation import is_valid_name, normalize_folder_id
 
 router = APIRouter(prefix="/v2/files", tags=["files"])
 
 
-def _serialize(file: File) -> dict:
-    return {
-        "fileId": file.id,
-        "filename": file.filename,
-        "parentFolderId": file.parent_folder_id,
-        "size": file.size,
-        "contentType": file.content_type,
-        "status": file.status,
-        "createdAt": iso(file.created_at),
-        "updatedAt": iso(file.updated_at),
-    }
+def _discard(db: Session, file: File) -> None:
+    """Remove a rejected upload's bytes and row, committing so the deletion
+    survives the request even though the handler then raises an error."""
+    storage.delete(file.storage_key)
+    db.delete(file)
+    db.commit()
 
 
 @router.post("/uploads")
@@ -58,6 +57,10 @@ def create_upload(
             raise ApiError(400, "size must be an integer")
         if size < 0:
             raise ApiError(400, "size must be non-negative")
+
+        quota = settings.user_quota_bytes
+        if quota and user_storage_usage(db, user.id) + size > quota:
+            raise ApiError(413, "Storage quota exceeded")
 
         file = File(
             owner_id=user.id,
@@ -98,6 +101,19 @@ def finalize_upload(
             raise ApiError(409, "File bytes are not uploaded yet")
 
         actual_size = storage.size(file.storage_key)
+
+        quota = settings.user_quota_bytes
+        if quota and user_storage_usage(db, user.id, exclude_file_id=file_id) + actual_size > quota:
+            _discard(db, file)
+            raise ApiError(413, "Storage quota exceeded")
+
+        # Reject malware before the file is marked ready (and before it can be
+        # captured in a backup). No-op unless ClamAV is enabled.
+        clean, signature = antivirus.scan_file(storage.resolve(file.storage_key))
+        if not clean:
+            _discard(db, file)
+            raise ApiError(422, f"File failed virus scan: {signature}")
+
         if file.status != "ready":
             file.status = "ready"
             file.size = actual_size

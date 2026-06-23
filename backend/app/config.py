@@ -19,12 +19,33 @@ class Settings(BaseSettings):
     # Storage / database
     database_url: str = "sqlite:///./data/app.db"
     storage_dir: Path = Path("./data/blobs")
+    run_migrations: bool = True
 
     # Security
     secret_key: str = "change-me-in-production"
     access_token_expiry_minutes: int = 60 * 24
     signed_url_expiry_seconds: int = 3600
     pbkdf2_iterations: int = 260_000
+
+    # Login brute-force protection
+    login_max_attempts: int = 5
+    login_window_seconds: int = 300
+    login_lockout_seconds: int = 900
+
+    # Per-user storage quota in bytes (0 = unlimited)
+    user_quota_bytes: int = 0
+
+    # Backups
+    backup_dir: Path = Path("./data/backups")
+    backup_interval_hours: int = 24
+    backup_retention: int = 10
+    maintenance_interval_minutes: int = 60
+    enable_scheduler: bool = True
+
+    # Antivirus (ClamAV over TCP); disabled by default
+    clamav_enabled: bool = False
+    clamav_host: str = "clamav"
+    clamav_port: int = 3310
 
     # Domain rules
     share_expiry_days: int = 30
