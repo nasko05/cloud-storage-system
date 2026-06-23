@@ -39,6 +39,8 @@ antivirus workload:
   separately-billed **Object Storage** add-on is **not** app storage — the app
   writes uploads to the local disk, never to an S3 bucket. Object Storage is
   still worth adding as the off-site **backup** target (see step 8).
+  > For reference, a Storage VPS 20 exposes roughly **~387 GB usable** on `/`
+  > (check yours with `df -h /`); that local disk is your entire file capacity.
 - **Image: Ubuntu 24.04 LTS (64-bit).**
 - **Region:** pick the datacenter closest to you.
 - **Login:** set an SSH key if offered; otherwise Contabo emails you a **root
