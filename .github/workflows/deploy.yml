@@ -1,21 +1,28 @@
 name: Deploy
 
-# Continuous deployment to the Contabo VPS.
+# Fully automated continuous deployment to the Contabo VPS.
 #
-# This runs ONLY after the CI workflow finishes successfully on `main`, so a
-# red build never reaches the server. It opens an SSH connection to the VPS and
-# runs the same update you would run by hand: pull the new code and rebuild the
-# Docker stack (with the antivirus profile). All persistent state lives on named
-# volumes, so the rebuild never touches accounts, files, shares or backups.
+# Trigger: runs ONLY after the CI workflow finishes successfully on `main`, so a
+# red build never reaches the server. The job then, with no manual steps:
+#   1. SSHes into the VPS,
+#   2. pulls the latest `main` and rebuilds the Docker stack (app + db + Caddy,
+#      plus ClamAV via the antivirus profile),
+#   3. serves the app on the configured domain with automatic HTTPS (Caddy +
+#      Let's Encrypt), and
+#   4. verifies the app reports healthy before declaring success.
+# All persistent state lives on named volumes, so redeploys never touch
+# accounts, files, shares or backups.
 #
 # Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   DEPLOY_HOST     - VPS IP or hostname (e.g. drive.example.com)
+#   DEPLOY_HOST     - VPS IPv4 address (GitHub runners have no IPv6 route)
 #   DEPLOY_USER     - the deploy user on the VPS (e.g. deploy)
 #   DEPLOY_SSH_KEY  - the PRIVATE key whose public half is in the deploy
 #                     user's ~/.ssh/authorized_keys on the VPS
 #
-# See docs/DEPLOYMENT_CONTABO.md for the one-time server setup that creates the
-# deploy user and the SSH key referenced above.
+# Optional repository variables (override the defaults below without editing
+# this file): DRIVE_SITE_ADDRESS, DRIVE_CORS_ALLOW_ORIGINS.
+#
+# See docs/DEPLOYMENT_CONTABO.md for the one-time server setup.
 
 on:
   workflow_run:
@@ -23,7 +30,7 @@ on:
     types: [completed]
     branches: [main]
 
-# Never run two deploys at once; cancel an in-flight one if a newer build lands.
+# Never run two deploys at once; let an in-flight deploy finish.
 concurrency:
   group: deploy-production
   cancel-in-progress: false
@@ -39,23 +46,51 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+          # Public address Caddy serves. A bare domain triggers automatic HTTPS.
+          # Override via a repo variable; defaults to the project's domain.
+          SITE_ADDRESS: ${{ vars.DRIVE_SITE_ADDRESS || 'personal-drive-io.com' }}
+          CORS_ORIGINS: ${{ vars.DRIVE_CORS_ALLOW_ORIGINS || 'https://personal-drive-io.com' }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
-          # Trust the host on first contact (TOFU). For stronger security, replace
-          # this with a pinned entry: store the VPS host key as a secret and write
-          # it to ~/.ssh/known_hosts instead of scanning.
+          # Trust the host on first contact (TOFU). For stronger security, pin the
+          # VPS host key in a secret and write it to known_hosts instead.
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+          # Pass the public-address config into the remote shell environment so
+          # docker compose picks it up for ${DRIVE_SITE_ADDRESS} interpolation.
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
+            "DRIVE_SITE_ADDRESS='${SITE_ADDRESS}' DRIVE_CORS_ALLOW_ORIGINS='${CORS_ORIGINS}' bash -s" <<'REMOTE'
             set -euo pipefail
             cd ~/cloud-storage-system
+
+            # 1. Sync to the exact state of origin/main.
             git fetch origin main
             git reset --hard origin/main
-            # --profile antivirus brings up the ClamAV container alongside the app.
+
+            # 2. Build and (re)start the whole stack. Caddy reads
+            #    DRIVE_SITE_ADDRESS from the environment exported above and
+            #    obtains/renews a Let's Encrypt cert automatically for a domain.
+            export DRIVE_SITE_ADDRESS DRIVE_CORS_ALLOW_ORIGINS
             docker compose --profile antivirus up -d --build
-            # Reclaim disk from the previous image build (important on a small box).
+
+            # 3. Reclaim disk from the previous image build (small box).
             docker image prune -f
+
+            # 4. Verify the app actually came up before we call this a success.
+            ok=""
+            for i in $(seq 1 30); do
+              if curl -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1; then ok=1; break; fi
+              sleep 5
+            done
+            if [ -z "$ok" ]; then
+              echo "::error::App did not become healthy after deploy"
+              docker compose ps
+              docker compose logs --tail=80 app
+              exit 1
+            fi
+
+            echo "Deploy OK — app healthy. Public address: ${DRIVE_SITE_ADDRESS}"
             docker compose ps
           REMOTE

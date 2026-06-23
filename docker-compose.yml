@@ -1,7 +1,13 @@
-# Production deployment: the FastAPI app plus a dedicated PostgreSQL container,
-# each with its own named volume so data survives `docker compose down` and
-# image rebuilds. An optional ClamAV service can be enabled with the `antivirus`
-# profile: `docker compose --profile antivirus up -d`.
+# Production deployment: a Caddy reverse proxy in front of the FastAPI app plus
+# a dedicated PostgreSQL container, each with its own named volume so data
+# survives `docker compose down` and image rebuilds. Caddy is the only publicly
+# exposed service (ports 80/443); the app is reachable only on localhost and
+# through the Compose network. An optional ClamAV service can be enabled with
+# the `antivirus` profile: `docker compose --profile antivirus up -d`.
+#
+# Public address is controlled by DRIVE_SITE_ADDRESS (default ":80", plain HTTP
+# on the server IP). Set it to a domain (e.g. "drive.example.com") and Caddy
+# automatically provisions and renews a Let's Encrypt HTTPS certificate.
 
 services:
   db:
@@ -43,8 +49,26 @@ services:
     volumes:
       - blob_data:/data/blobs
       - backup_data:/data/backups
+    # Published on localhost only: external traffic must go through Caddy. The
+    # local bind keeps `curl localhost:8000/healthz` working (used by CI).
     ports:
-      - "${DRIVE_PORT:-8000}:8000"
+      - "127.0.0.1:${DRIVE_PORT:-8000}:8000"
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - app
+    environment:
+      # ":80" = plain HTTP on the server IP. Set to a domain for auto-HTTPS.
+      DRIVE_SITE_ADDRESS: ${DRIVE_SITE_ADDRESS:-:80}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
 
   clamav:
     image: clamav/clamav:1.4
@@ -64,3 +88,5 @@ volumes:
   blob_data:
   backup_data:
   clamav_data:
+  caddy_data:
+  caddy_config:
