@@ -140,40 +140,35 @@ docker compose ps
 ```
 
 The **first ClamAV start downloads virus definitions (a few minutes)** before it
-reports healthy. The app is published on `http://<vps-ip>:8000`. Open it,
-register the first account, upload a file to confirm. Data lives in the
-`db_data`, `blob_data` and `backup_data` volumes.
+reports healthy. A **Caddy reverse proxy** comes up automatically as part of the
+stack and is the only publicly exposed service: the app itself is bound to
+localhost and reached only through Caddy. Data lives in the `db_data`,
+`blob_data` and `backup_data` volumes.
 
-## 6. HTTPS with Caddy
+## 6. How the app is served (Caddy + DRIVE_SITE_ADDRESS)
 
-Run Caddy on the host to terminate TLS (the app speaks plain HTTP behind it) and
-get automatic Let's Encrypt certificates. Requires the DNS A record from step 1.
+Caddy runs as a container (defined in `docker-compose.yml`, config in
+`Caddyfile`) and publishes ports 80/443. What it serves is controlled by one
+variable, `DRIVE_SITE_ADDRESS`:
 
-```bash
-sudo apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | sudo gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
-curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | sudo tee /etc/apt/sources.list.d/caddy-stable.list
-sudo apt-get update && sudo apt-get install -y caddy
-```
-
-Put this in `/etc/caddy/Caddyfile`:
-
-```
-drive.example.com {
-    reverse_proxy 127.0.0.1:8000
-}
-```
-
-```bash
-sudo systemctl reload caddy
-```
-
-`https://drive.example.com` now serves the app.
+- **No domain (default):** leave it unset (or `:80`). The app is served over
+  **plain HTTP on the server IP** — `http://<vps-ip>`. Good for testing.
+  > ⚠️ Plain HTTP sends login passwords in cleartext. Fine for a quick personal
+  > trial; add a domain (below) before relying on it.
+- **With a domain:** point a DNS A record at the VPS, then set the domain and
+  redeploy — Caddy auto-provisions and renews a Let's Encrypt certificate:
+  ```bash
+  echo "DRIVE_SITE_ADDRESS=drive.example.com" >> .env
+  echo "DRIVE_CORS_ALLOW_ORIGINS=https://drive.example.com" >> .env
+  docker compose --profile antivirus up -d
+  ```
+  `https://drive.example.com` now serves the app, no host-level web server
+  needed.
 
 ## 7. Firewall
 
 Contabo VPSes have **no cloud firewall by default**, so configure `ufw` on the
-host. Allow SSH + HTTP + HTTPS and block direct access to port 8000:
+host. Allow SSH + HTTP + HTTPS:
 
 ```bash
 sudo ufw allow OpenSSH
@@ -182,8 +177,9 @@ sudo ufw allow 443/tcp
 sudo ufw enable
 ```
 
-`ufw` blocks everything not allowed, so 8000 is now reachable only from
-localhost (where Caddy talks to it) — exactly what you want.
+Port 8000 is already bound to localhost only (see `docker-compose.yml`), so the
+app is never directly reachable from outside — all traffic goes through Caddy on
+80/443. `ufw` then blocks anything else.
 
 ## 8. Off-site backups
 
