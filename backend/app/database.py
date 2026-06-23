@@ -50,8 +50,10 @@ def _upgrade_to_head() -> None:
     from alembic import command
     from alembic.config import Config
 
-    ini_path = Path(__file__).resolve().parent.parent / "alembic.ini"
-    cfg = Config(str(ini_path))
+    app_dir = Path(__file__).resolve().parent
+    cfg = Config(str(app_dir.parent / "alembic.ini"))
+    # Pin paths absolutely so migrations run the same regardless of CWD.
+    cfg.set_main_option("script_location", str(app_dir / "migrations"))
     cfg.set_main_option("sqlalchemy.url", settings.database_url)
     command.upgrade(cfg, "head")
 

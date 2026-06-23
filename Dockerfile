@@ -6,7 +6,7 @@
 # live on the /data volume.
 
 # ---- Stage 1: build the frontend ----
-FROM node:22-bookworm-slim AS frontend
+FROM node:24-bookworm-slim AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm install --legacy-peer-deps --no-audit --no-fund

@@ -82,7 +82,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: '24'
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install --legacy-peer-deps --no-audit --no-fund
@@ -103,8 +103,21 @@ jobs:
         run: |
           echo "DRIVE_SECRET_KEY=ci-secret" > .env
           docker compose up -d
+          ok=""
           for i in $(seq 1 40); do
-            curl -fsS http://localhost:8000/healthz && break || sleep 3
+            if curl -fsS http://localhost:8000/healthz; then ok=1; break; fi
+            cid="$(docker compose ps -q app)"
+            if [ -z "$cid" ] || [ "$(docker inspect -f '{{.State.Running}}' "$cid" 2>/dev/null)" != "true" ]; then
+              echo "app container is not running; aborting early"
+              break
+            fi
+            sleep 3
           done
-          curl -fsS http://localhost:8000/healthz
+          if [ -z "$ok" ]; then
+            echo "==== docker compose ps ===="; docker compose ps
+            echo "==== app logs ===="; docker compose logs app
+            docker compose down -v
+            exit 1
+          fi
+          echo "health OK"
           docker compose down -v
