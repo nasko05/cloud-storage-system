@@ -282,3 +282,49 @@ docker compose exec app python -m app.cli verify-backup -i /data/backups/<bundle
 **HDD note:** these Storage VPS plans are spinning disk. For low traffic that is
 fine; the only HDD-sensitive part is PostgreSQL under heavy concurrency, which a
 personal/low-traffic drive will not hit.
+
+## 11. Troubleshooting
+
+### Caddy can't get an HTTPS certificate (DNS / systemd-resolved)
+
+Symptom — `docker compose logs caddy` shows ACME failing with:
+
+```
+lookup acme-v02.api.letsencrypt.org on 127.0.0.53:53: ... connection refused
+```
+
+Cause: Ubuntu runs **systemd-resolved**, whose stub resolver lives at
+`127.0.0.53`. That address only exists on the host, not inside a container, so
+the container can't resolve anything externally and cert issuance fails.
+
+The Compose file already pins public resolvers (`dns: [1.1.1.1, 8.8.8.8]`) on the
+`caddy` and `clamav` services, which fixes this for normal deploys. If you still
+hit it (e.g. other containers, or an older daemon), fix it globally at the Docker
+daemon level:
+
+```bash
+echo '{"dns": ["1.1.1.1", "8.8.8.8"]}' | sudo tee /etc/docker/daemon.json
+sudo systemctl restart docker
+cd ~/cloud-storage-system
+docker compose --profile antivirus up -d
+docker compose logs -f caddy        # watch the cert get issued
+```
+
+### "Site doesn't load" but the deploy succeeded
+
+The deploy health check probes the **app** (`localhost:8000`), so it can go green
+while **Caddy** (the public entry point) is still failing — almost always the DNS
+issue above, or a missing/late DNS A record for your domain. Check
+`docker compose logs caddy`, confirm `dig +short <domain>` returns the VPS IP, and
+make sure ports 80/443 are open and published (`docker compose ps` should show
+`0.0.0.0:80->80/tcp` on caddy).
+
+### Port 80/443 "address already in use"
+
+A host web server (often a previously apt-installed Caddy) is holding the port.
+Find and disable it, then redeploy:
+
+```bash
+sudo ss -tlnp 'sport = :80'
+sudo systemctl disable --now caddy   # or nginx / apache2
+```
