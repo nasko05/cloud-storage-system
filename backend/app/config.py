@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
+from typing import Annotated
 
 from pydantic import field_validator
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -57,7 +58,10 @@ class Settings(BaseSettings):
 
     # Behaviour
     require_email_confirmation: bool = False
-    cors_allow_origins: list[str] = ["*"]
+    # NoDecode stops pydantic-settings from JSON-decoding the env value so a
+    # plain comma-separated string (e.g. "*" or "https://a.com,https://b.com")
+    # is accepted and split by the validator below.
+    cors_allow_origins: Annotated[list[str], NoDecode] = ["*"]
     serve_frontend: bool = True
     frontend_dir: Path = Path("./static")
 

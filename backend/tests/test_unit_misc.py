@@ -136,3 +136,12 @@ def test_cors_origins_split():
     assert s.cors_allow_origins == ["https://a.com", "https://b.com"]
     s2 = Settings(secret_key="x", cors_allow_origins=["https://c.com"])
     assert s2.cors_allow_origins == ["https://c.com"]
+
+
+def test_cors_origins_from_env(monkeypatch):
+    # Env vars take the EnvSettingsSource path, which previously tried to
+    # JSON-decode the value and crashed on a plain string like "*".
+    monkeypatch.setenv("DRIVE_CORS_ALLOW_ORIGINS", "*")
+    assert Settings().cors_allow_origins == ["*"]
+    monkeypatch.setenv("DRIVE_CORS_ALLOW_ORIGINS", "https://a.com, https://b.com")
+    assert Settings().cors_allow_origins == ["https://a.com", "https://b.com"]
