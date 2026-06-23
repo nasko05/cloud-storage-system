@@ -19,7 +19,7 @@ from ..permissions import is_valid_permission
 from ..principals import parse_principal_path
 from ..schemas import PatchShareRequest, PutShareRequest
 from ..services import require_owned_file
-from ..utils import iso, is_active, now_utc
+from ..utils import iso, now_utc
 
 router = APIRouter(tags=["shares"])
 
@@ -73,11 +73,13 @@ def list_inbound_shares(
             or_(Share.expires_at.is_(None), Share.expires_at > now),
         )
         .order_by(Share.shared_at.desc(), Share.id)
+        .offset(offset)
+        .limit(page_size + 1)
     ).all()
 
-    window = rows[offset : offset + page_size]
-    items = [_serialize_inbound(share, file) for share, file in window]
-    next_cursor = encode_cursor(offset + page_size) if offset + page_size < len(rows) else None
+    has_more = len(rows) > page_size
+    items = [_serialize_inbound(share, file) for share, file in rows[:page_size]]
+    next_cursor = encode_cursor(offset + page_size) if has_more else None
     return {"items": items, "nextCursor": next_cursor}
 
 
@@ -93,12 +95,16 @@ def list_file_shares(
     page_size = normalize_limit(limit, default=50, max_value=200)
     offset = decode_cursor(cursor)
 
+    now = now_utc()
     shares = db.execute(
-        select(Share).where(Share.file_id == file_id).order_by(Share.shared_at, Share.id)
+        select(Share)
+        .where(Share.file_id == file_id, or_(Share.expires_at.is_(None), Share.expires_at > now))
+        .order_by(Share.shared_at, Share.id)
+        .offset(offset)
+        .limit(page_size + 1)
     ).scalars().all()
-    active = [s for s in shares if is_active(s.expires_at)]
 
-    window = active[offset : offset + page_size]
+    has_more = len(shares) > page_size
     items = [
         {
             "principalType": s.principal_type,
@@ -108,9 +114,9 @@ def list_file_shares(
             "sharedAt": iso(s.shared_at),
             "expiresAt": iso(s.expires_at),
         }
-        for s in window
+        for s in shares[:page_size]
     ]
-    next_cursor = encode_cursor(offset + page_size) if offset + page_size < len(active) else None
+    next_cursor = encode_cursor(offset + page_size) if has_more else None
     return {"items": items, "nextCursor": next_cursor}
 
 

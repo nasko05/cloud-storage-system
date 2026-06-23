@@ -1,8 +1,9 @@
 # Architecture
 
 The system is a single FastAPI application that serves a React UI, a JSON API,
-and file bytes — backed by PostgreSQL and the local filesystem. It is designed
-to run as one Docker image on a single server.
+and file bytes — backed by PostgreSQL and the local filesystem. It runs as two
+containers (the app and a PostgreSQL database) on a single server via Docker
+Compose.
 
 ```
               ┌─────────────────────────────────────────────┐
@@ -22,7 +23,7 @@ to run as one Docker image on a single server.
               │  │ (thread)    │               │              │
               └──┴────┬────────┴───────────────┼──────────────┘
                       │                         │
-                 local FS (/data/blobs)    PostgreSQL (/data/pgdata)
+                 local FS (blob volume)    PostgreSQL (separate container)
 ```
 
 ## What replaced the old AWS stack

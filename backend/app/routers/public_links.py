@@ -6,7 +6,7 @@ from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Header, Query
 from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 
 from ..config import settings
@@ -18,7 +18,7 @@ from ..pagination import decode_cursor, encode_cursor, normalize_limit
 from ..schemas import CreatePublicLinkRequest, PatchPublicLinkRequest
 from ..security import hash_password
 from ..services import require_owned_file
-from ..utils import iso, is_active, now_utc
+from ..utils import iso, now_utc
 
 router = APIRouter(tags=["public-links"])
 
@@ -89,12 +89,19 @@ def list_public_links(
     page_size = normalize_limit(limit, default=50, max_value=200)
     offset = decode_cursor(cursor)
 
+    now = now_utc()
     links = db.execute(
-        select(PublicLink).where(PublicLink.file_id == file_id).order_by(PublicLink.created_at, PublicLink.token)
+        select(PublicLink)
+        .where(
+            PublicLink.file_id == file_id,
+            or_(PublicLink.expires_at.is_(None), PublicLink.expires_at > now),
+        )
+        .order_by(PublicLink.created_at, PublicLink.token)
+        .offset(offset)
+        .limit(page_size + 1)
     ).scalars().all()
-    active = [link for link in links if is_active(link.expires_at)]
 
-    window = active[offset : offset + page_size]
+    has_more = len(links) > page_size
     items = [
         {
             "token": link.token,
@@ -106,9 +113,9 @@ def list_public_links(
             "updatedAt": iso(link.updated_at),
             "expiresAt": iso(link.expires_at),
         }
-        for link in window
+        for link in links[:page_size]
     ]
-    next_cursor = encode_cursor(offset + page_size) if offset + page_size < len(active) else None
+    next_cursor = encode_cursor(offset + page_size) if has_more else None
     return {"items": items, "nextCursor": next_cursor}
 
 

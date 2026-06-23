@@ -1,9 +1,6 @@
-# Split-service deployment (recommended for production): the app container and
-# a dedicated PostgreSQL container, each with its own named volume so data
-# survives `docker compose down` and image rebuilds.
-#
-# For the literal "single image" deployment, use the Dockerfile directly with
-# embedded PostgreSQL (see docs/DEPLOYMENT.md).
+# Production deployment: the FastAPI app plus a dedicated PostgreSQL container,
+# each with its own named volume so data survives `docker compose down` and
+# image rebuilds.
 
 services:
   db:
@@ -28,8 +25,6 @@ services:
       db:
         condition: service_healthy
     environment:
-      # Use the external db service instead of the embedded PostgreSQL.
-      DRIVE_EMBEDDED_PG: "false"
       DRIVE_DATABASE_URL: postgresql+psycopg2://drive:${DRIVE_PG_PASSWORD:-drive}@db:5432/drive
       DRIVE_SECRET_KEY: ${DRIVE_SECRET_KEY:?Set DRIVE_SECRET_KEY in a .env file}
       DRIVE_STORAGE_DIR: /data/blobs

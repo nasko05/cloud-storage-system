@@ -42,20 +42,43 @@ def list_children(
 
     page_size = normalize_limit(limit, default=100, max_value=200)
     offset = decode_cursor(cursor)
+    fetch = page_size + 1  # one extra row tells us whether another page exists
 
-    folders = db.execute(
-        select(Folder)
+    # Folders sort before files in the combined stream. Page across both tables
+    # at the DB level (LIMIT/OFFSET) so we never load a whole folder in memory.
+    folder_count = db.scalar(
+        select(func.count())
+        .select_from(Folder)
         .where(Folder.owner_id == user.id, Folder.parent_folder_id == folder_id)
-        .order_by(func.lower(Folder.name), Folder.id)
-    ).scalars().all()
-    files = db.execute(
-        select(File)
-        .where(File.owner_id == user.id, File.parent_folder_id == folder_id)
-        .order_by(func.lower(File.filename), File.id)
-    ).scalars().all()
+    ) or 0
 
-    combined: list = list(folders) + list(files)
-    window = combined[offset : offset + page_size]
+    rows: list = []
+    if offset < folder_count:
+        rows.extend(
+            db.execute(
+                select(Folder)
+                .where(Folder.owner_id == user.id, Folder.parent_folder_id == folder_id)
+                .order_by(func.lower(Folder.name), Folder.id)
+                .offset(offset)
+                .limit(fetch)
+            ).scalars().all()
+        )
+
+    remaining = fetch - len(rows)
+    if remaining > 0:
+        file_offset = max(0, offset - folder_count)
+        rows.extend(
+            db.execute(
+                select(File)
+                .where(File.owner_id == user.id, File.parent_folder_id == folder_id)
+                .order_by(func.lower(File.filename), File.id)
+                .offset(file_offset)
+                .limit(remaining)
+            ).scalars().all()
+        )
+
+    has_more = len(rows) > page_size
+    window = rows[:page_size]
 
     page_file_ids = [row.id for row in window if isinstance(row, File)]
     flags = derive_file_flags(db, page_file_ids)
@@ -86,7 +109,7 @@ def list_children(
                 "updatedAt": iso(row.updated_at),
             })
 
-    next_cursor = encode_cursor(offset + page_size) if offset + page_size < len(combined) else None
+    next_cursor = encode_cursor(offset + page_size) if has_more else None
     return {"items": items, "nextCursor": next_cursor}
 
 

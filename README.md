@@ -29,16 +29,17 @@ original AWS serverless design.
 git clone https://github.com/nasko05/cloud-storage-system.git
 cd cloud-storage-system
 
-echo "DRIVE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')" > .env
+{
+  echo "DRIVE_SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_urlsafe(48))')"
+  echo "DRIVE_PG_PASSWORD=$(python3 -c 'import secrets; print(secrets.token_urlsafe(16))')"
+} > .env
 
-docker build -t personal-drive .
-mkdir -p data
-docker run -d --name drive --restart unless-stopped \
-  -p 8000:8000 -v "$(pwd)/data:/data" --env-file .env personal-drive
+docker compose up -d --build
 ```
 
-Open <http://localhost:8000>, register, and start uploading. Data persists in
-`./data` across rebuilds. Full server setup, HTTPS, compose, backups and
+Open <http://localhost:8000>, register, and start uploading. The app and its
+PostgreSQL database run as two containers; data persists in the `db_data` and
+`blob_data` volumes across rebuilds. Full server setup, HTTPS, backups and
 migration: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
 
 ## Local development
@@ -72,9 +73,8 @@ cd frontend && CI=false npm run build         # frontend type-check + build
 
 ```text
 cloud-storage-system/
-├── Dockerfile              # single all-in-one image (app + embedded PostgreSQL)
-├── docker-compose.yml      # split app + PostgreSQL alternative
-├── docker/entrypoint.sh    # boots embedded DB then the app
+├── Dockerfile              # slim app-only image
+├── docker-compose.yml      # app + PostgreSQL, each with a persistent volume
 ├── backend/                # FastAPI application + tests
 │   └── app/                # config, models, routers, services, cli, ...
 ├── frontend/               # React + TypeScript UI
