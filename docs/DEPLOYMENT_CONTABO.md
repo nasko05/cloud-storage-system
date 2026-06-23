@@ -145,25 +145,31 @@ stack and is the only publicly exposed service: the app itself is bound to
 localhost and reached only through Caddy. Data lives in the `db_data`,
 `blob_data` and `backup_data` volumes.
 
-## 6. How the app is served (Caddy + DRIVE_SITE_ADDRESS)
+## 6. How the app is served (Caddy + HTTPS)
 
 Caddy runs as a container (defined in `docker-compose.yml`, config in
-`Caddyfile`) and publishes ports 80/443. What it serves is controlled by one
-variable, `DRIVE_SITE_ADDRESS`:
+`Caddyfile`) and publishes ports 80/443. What it serves is controlled by
+`DRIVE_SITE_ADDRESS`. **The deploy pipeline sets this automatically** (see
+`.github/workflows/deploy.yml`), so a normal deploy already serves the app on the
+project domain over HTTPS — no manual step.
 
-- **No domain (default):** leave it unset (or `:80`). The app is served over
-  **plain HTTP on the server IP** — `http://<vps-ip>`. Good for testing.
-  > ⚠️ Plain HTTP sends login passwords in cleartext. Fine for a quick personal
-  > trial; add a domain (below) before relying on it.
-- **With a domain:** point a DNS A record at the VPS, then set the domain and
-  redeploy — Caddy auto-provisions and renews a Let's Encrypt certificate:
+- **Default (pipeline):** the workflow injects `DRIVE_SITE_ADDRESS` (the project
+  domain) and the matching CORS origin, and Caddy **auto-provisions and renews a
+  Let's Encrypt certificate**. To change the domain, set a repository *variable*
+  `DRIVE_SITE_ADDRESS` (and `DRIVE_CORS_ALLOW_ORIGINS`) — no workflow edit needed.
+- **The one external prerequisite is DNS:** a DNS **A record** for the domain
+  must point at the VPS IPv4. Caddy validates the domain over port 80, so the
+  cert is issued once DNS resolves (it retries automatically until then).
+- **Manual / no-pipeline deploys:** put the same values in `.env` instead:
   ```bash
-  echo "DRIVE_SITE_ADDRESS=drive.example.com" >> .env
-  echo "DRIVE_CORS_ALLOW_ORIGINS=https://drive.example.com" >> .env
+  echo "DRIVE_SITE_ADDRESS=personal-drive-io.com" >> .env
+  echo "DRIVE_CORS_ALLOW_ORIGINS=https://personal-drive-io.com" >> .env
   docker compose --profile antivirus up -d
   ```
-  `https://drive.example.com` now serves the app, no host-level web server
-  needed.
+- **No domain at all:** leave it unset; Caddy falls back to `:80` and serves
+  plain HTTP on the server IP (`http://<vps-ip>`).
+  > ⚠️ Plain HTTP sends login passwords in cleartext — use a domain for anything
+  > beyond a quick trial.
 
 ## 7. Firewall
 
