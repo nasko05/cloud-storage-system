@@ -9,7 +9,6 @@ from __future__ import annotations
 
 from collections.abc import Iterable
 from datetime import datetime
-from functools import reduce
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -77,7 +76,7 @@ def name_conflict(
     *,
     exclude_id: str | None = None,
 ) -> bool:
-    name_column = model.filename if model is File else model.name
+    name_column = getattr(model, "filename" if model is File else "name")
     stmt = select(model.id).where(
         model.owner_id == owner_id,
         model.parent_folder_id == parent_folder_id,
@@ -119,7 +118,7 @@ def active_share(
     now = now_utc()
     stmt = select(Share).where(
         Share.file_id == file_id,
-        reduce(or_, clauses),
+        or_(*clauses),
         _active_window(Share.expires_at, now),
     )
     return db.execute(stmt).scalars().first()

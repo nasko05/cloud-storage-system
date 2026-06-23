@@ -13,7 +13,7 @@ import json
 import logging
 import tarfile
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 from . import dbio
@@ -38,7 +38,7 @@ def create_backup(output_dir: Path | None = None) -> Path:
     target_dir = Path(output_dir) if output_dir else settings.backup_dir
     target_dir.mkdir(parents=True, exist_ok=True)
 
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
+    stamp = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
     bundle = target_dir / f"backup-{stamp}.tar.gz"
 
     with tempfile.TemporaryDirectory() as tmp:

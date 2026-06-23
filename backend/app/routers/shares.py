@@ -29,7 +29,7 @@ def _expiry_from_days(days: int | None):
     try:
         resolved = int(resolved)
     except (TypeError, ValueError):
-        raise ApiError(400, "expiryDays must be an integer")
+        raise ApiError(400, "expiryDays must be an integer") from None
     if resolved < 1 or resolved > 365:
         raise ApiError(400, "expiryDays must be between 1 and 365")
     return now_utc() + timedelta(days=resolved)

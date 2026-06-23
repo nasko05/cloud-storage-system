@@ -77,10 +77,10 @@ class File(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
 
-    shares: Mapped[list["Share"]] = relationship(
+    shares: Mapped[list[Share]] = relationship(
         back_populates="file", cascade="all, delete-orphan", passive_deletes=True
     )
-    public_links: Mapped[list["PublicLink"]] = relationship(
+    public_links: Mapped[list[PublicLink]] = relationship(
         back_populates="file", cascade="all, delete-orphan", passive_deletes=True
     )
 
@@ -106,7 +106,7 @@ class Share(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    file: Mapped["File"] = relationship(back_populates="shares")
+    file: Mapped[File] = relationship(back_populates="shares")
 
 
 class PublicLink(Base):
@@ -124,7 +124,7 @@ class PublicLink(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=_now, onupdate=_now)
     expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    file: Mapped["File"] = relationship(back_populates="public_links")
+    file: Mapped[File] = relationship(back_populates="public_links")
 
 
 class ArchiveJob(Base):

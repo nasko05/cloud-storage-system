@@ -22,6 +22,8 @@ from .database import init_db
 from .errors import ApiError, api_error_handler, unhandled_error_handler
 from .routers import (
     archive as archive_router,
+)
+from .routers import (
     auth,
     blobs,
     download,
@@ -61,7 +63,7 @@ app.add_middleware(
 # API path prefixes that must 404 (not fall through to the SPA index.html).
 _API_PREFIXES = ("v2/", "healthz", "docs", "openapi.json", "redoc")
 
-app.add_exception_handler(ApiError, api_error_handler)
+app.add_exception_handler(ApiError, api_error_handler)  # type: ignore[arg-type]
 app.add_exception_handler(Exception, unhandled_error_handler)
 
 
@@ -92,20 +94,31 @@ def healthz() -> dict:
     return {"status": "ok"}
 
 
-# --- Static frontend (mounted last so API routes win) -----------------------
+def mount_frontend(application: FastAPI) -> None:
+    """Serve the built React app as static files with SPA fallback.
 
-if settings.serve_frontend and settings.frontend_dir.is_dir():
-    _assets = settings.frontend_dir / "static"
-    if _assets.is_dir():
-        app.mount("/static", StaticFiles(directory=_assets), name="static")
+    Mounted last so API routes win. Unknown API paths still 404 (JSON); any other
+    path falls back to ``index.html`` so client-side routes like ``/s/{token}``
+    work on a hard refresh.
+    """
+    frontend_dir = settings.frontend_dir
+    assets = frontend_dir / "static"
+    if assets.is_dir():
+        application.mount("/static", StaticFiles(directory=assets), name="static")
 
-    _index = settings.frontend_dir / "index.html"
+    index = frontend_dir / "index.html"
 
-    @app.get("/{full_path:path}", include_in_schema=False)
+    @application.get("/{full_path:path}", include_in_schema=False)
     def spa(full_path: str):
         if full_path.startswith(_API_PREFIXES):
             raise ApiError(404, "Not found")
-        candidate = (settings.frontend_dir / full_path).resolve()
-        if full_path and candidate.is_file() and settings.frontend_dir.resolve() in candidate.parents:
+        candidate = (frontend_dir / full_path).resolve()
+        if full_path and candidate.is_file() and frontend_dir.resolve() in candidate.parents:
             return FileResponse(candidate)
-        return FileResponse(_index)
+        return FileResponse(index)
+
+
+# --- Static frontend (mounted last so API routes win) -----------------------
+
+if settings.serve_frontend and settings.frontend_dir.is_dir():
+    mount_frontend(app)

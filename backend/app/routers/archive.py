@@ -81,7 +81,7 @@ def archive_status(
     if job.expires_at is not None and job.expires_at <= now_utc() and status in ("ready", "failed"):
         status = "expired"
 
-    out = {
+    out: dict[str, object] = {
         "archiveJobId": job.id,
         "status": status,
         "createdAt": iso(job.created_at),

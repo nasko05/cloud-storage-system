@@ -26,7 +26,7 @@ logger = logging.getLogger("archive")
 
 _CHUNK = 1024 * 1024
 
-_job_queue: "queue.Queue[str]" = queue.Queue()
+_job_queue: queue.Queue[str] = queue.Queue()
 _worker_started = threading.Event()
 
 

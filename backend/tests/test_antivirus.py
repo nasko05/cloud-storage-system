@@ -1,5 +1,6 @@
-from app import antivirus
 from conftest import auth_header, register_and_login, upload_file
+
+from app import antivirus
 
 
 def test_infected_upload_is_rejected(client, monkeypatch):

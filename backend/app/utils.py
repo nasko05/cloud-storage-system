@@ -7,7 +7,7 @@ coercion surprises; :func:`iso` re-attaches the ``Z`` suffix on the way out.
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 
 def now_utc() -> datetime:
@@ -20,7 +20,7 @@ def iso(value: datetime | None) -> str | None:
     if value is None:
         return None
     if value.tzinfo is not None:
-        value = value.astimezone(timezone.utc).replace(tzinfo=None)
+        value = value.astimezone(UTC).replace(tzinfo=None)
     return value.isoformat() + "Z"
 
 
@@ -29,5 +29,5 @@ def is_active(expires_at: datetime | None, *, reference: datetime | None = None)
     if expires_at is None:
         return True
     if expires_at.tzinfo is not None:
-        expires_at = expires_at.astimezone(timezone.utc).replace(tzinfo=None)
+        expires_at = expires_at.astimezone(UTC).replace(tzinfo=None)
     return expires_at > (reference or now_utc())

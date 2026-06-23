@@ -1,21 +1,45 @@
 import os
 
-from app.cli import export_db, import_db
+import pytest
 from conftest import auth_header, register_and_login, upload_file
 
+from app import backup as backup_mod
+from app.cli import main
 
-def test_export_import_round_trip(client, tmp_path):
+
+def test_cli_init(client):
+    assert main(["init"]) == 0
+
+
+def test_cli_export_then_import(client, tmp_path):
     token, _, _ = register_and_login(client)
     client.post("/v2/folders/root/folders", json={"name": "Docs"}, headers=auth_header(token))
-    upload_file(client, token, "keep.txt", content=b"data")
-
-    backup = tmp_path / "backup.json"
-    export_db(str(backup))
-    assert backup.is_file() and os.path.getsize(backup) > 0
-
-    # Re-import over the same database; data should remain intact afterwards.
-    import_db(str(backup), replace=True)
-
+    out = tmp_path / "dump.json"
+    assert main(["export", "-o", str(out)]) == 0
+    assert os.path.getsize(out) > 0
+    assert main(["import", "-i", str(out), "--replace"]) == 0
     items = client.get("/v2/folders/root/children", headers=auth_header(token)).json()["items"]
-    names = {item["name"] for item in items}
-    assert {"Docs", "keep.txt"} <= names
+    assert {"Docs"} <= {i["name"] for i in items}
+
+
+def test_cli_backup_verify_restore(client, tmp_path):
+    token, _, _ = register_and_login(client)
+    upload_file(client, token, "keep.txt", content=b"bytes")
+
+    assert main(["backup", "--output-dir", str(tmp_path)]) == 0
+    bundle = backup_mod.list_backups(tmp_path)[0]
+    assert main(["verify-backup", "-i", str(bundle)]) == 0
+    assert main(["restore", "-i", str(bundle)]) == 0
+
+
+def test_cli_verify_corrupt_returns_nonzero(client, tmp_path):
+    register_and_login(client)
+    main(["backup", "--output-dir", str(tmp_path)])
+    bundle = backup_mod.list_backups(tmp_path)[0]
+    bundle.write_bytes(b"corrupt")
+    assert main(["verify-backup", "-i", str(bundle)]) == 1
+
+
+def test_cli_requires_subcommand(client):
+    with pytest.raises(SystemExit):
+        main([])

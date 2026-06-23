@@ -7,9 +7,9 @@ PostgreSQL. Used by both the management CLI and the backup bundler.
 from __future__ import annotations
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
-from sqlalchemy import DateTime, delete, inspect
+from sqlalchemy import DateTime, delete, insert, inspect
 
 from .database import SessionLocal, init_db
 from .models import ArchiveJob, File, Folder, IdempotencyRecord, PublicLink, Share, User
@@ -23,8 +23,8 @@ MODELS = [User, Folder, File, Share, PublicLink, ArchiveJob, IdempotencyRecord]
 def _serialize(value: object) -> object:
     if isinstance(value, datetime):
         if value.tzinfo is None:
-            value = value.replace(tzinfo=timezone.utc)
-        return value.astimezone(timezone.utc).isoformat()
+            value = value.replace(tzinfo=UTC)
+        return value.astimezone(UTC).isoformat()
     return value
 
 
@@ -41,7 +41,7 @@ def export_to_dict() -> dict:
         tables: dict[str, list[dict]] = {}
         for model in MODELS:
             columns = [c.key for c in inspect(model).columns]
-            rows = db.execute(inspect(model).local_table.select()).mappings().all()
+            rows = db.execute(model.__table__.select()).mappings().all()
             tables[model.__tablename__] = [
                 {col: _serialize(row[col]) for col in columns} for row in rows
             ]
@@ -70,7 +70,7 @@ def import_from_dict(payload: dict, replace: bool) -> int:
                 {key: _deserialize(value, key in datetime_cols) for key, value in row.items()}
                 for row in rows
             ]
-            db.execute(inspect(model).local_table.insert(), mapped)
+            db.execute(insert(model), mapped)
         db.commit()
         return sum(len(tables.get(m.__tablename__, [])) for m in MODELS)
     except Exception:

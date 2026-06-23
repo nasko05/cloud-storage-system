@@ -12,7 +12,7 @@ import base64
 
 def normalize_limit(raw: object, default: int = 100, max_value: int = 200) -> int:
     try:
-        value = int(raw)  # type: ignore[arg-type]
+        value = int(raw)  # type: ignore[call-overload]
     except (TypeError, ValueError):
         return default
     if value < 1:

@@ -8,6 +8,24 @@ on:
       - master
 
 jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Ruff (lint + import order)
+        working-directory: backend
+        run: ruff check app tests
+      - name: Mypy (type check)
+        working-directory: backend
+        run: mypy app
+
   backend:
     runs-on: ubuntu-latest
     steps:
@@ -19,7 +37,7 @@ jobs:
       - name: Install backend dependencies
         working-directory: backend
         run: pip install -r requirements-dev.txt
-      - name: Run backend tests (SQLite)
+      - name: Run backend tests (SQLite) with coverage gate
         working-directory: backend
         run: python -m pytest tests/ -q
 
@@ -68,7 +86,10 @@ jobs:
       - name: Install frontend dependencies
         working-directory: frontend
         run: npm install --legacy-peer-deps --no-audit --no-fund
-      - name: Type-check and build
+      - name: Type-check
+        working-directory: frontend
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Build (lints via react-scripts)
         working-directory: frontend
         run: CI=false npm run build
 

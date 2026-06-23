@@ -1,5 +1,6 @@
-from app.config import settings
 from conftest import auth_header, register_and_login, upload_file
+
+from app.config import settings
 
 
 def test_quota_blocks_oversized_upload_at_init(client, monkeypatch):

@@ -54,7 +54,7 @@ def create_upload(
         try:
             size = int(payload.size or 0)
         except (TypeError, ValueError):
-            raise ApiError(400, "size must be an integer")
+            raise ApiError(400, "size must be an integer") from None
         if size < 0:
             raise ApiError(400, "size must be non-negative")
 

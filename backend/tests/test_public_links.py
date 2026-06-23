@@ -35,6 +35,22 @@ def test_public_link_password_required(client):
     assert ok.status_code == 200
 
 
+def test_public_link_list_and_patch(client):
+    token, _, _ = register_and_login(client)
+    headers = auth_header(token)
+    file_id = upload_file(client, token, "managed.txt")
+    link = client.post(f"/v2/files/{file_id}/public-links", json={}, headers=headers).json()["token"]
+
+    listing = client.get(f"/v2/files/{file_id}/public-links", headers=headers).json()
+    assert listing["items"] and listing["items"][0]["token"] == link
+    assert listing["items"][0]["hasPassword"] is False
+
+    # Add a password, then change expiry, then remove the password.
+    assert client.patch(f"/v2/public-links/{link}", json={"password": "pw"}, headers=headers).json()["hasPassword"] is True
+    assert client.patch(f"/v2/public-links/{link}", json={"expiryDays": 5}, headers=headers).status_code == 200
+    assert client.patch(f"/v2/public-links/{link}", json={"removePassword": True}, headers=headers).json()["hasPassword"] is False
+
+
 def test_public_link_delete(client):
     token, _, _ = register_and_login(client)
     file_id = upload_file(client, token, "temp.txt")

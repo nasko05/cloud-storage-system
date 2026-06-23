@@ -13,7 +13,7 @@ from ..errors import ApiError
 from ..models import PublicLink
 from ..schemas import PublicDownloadRequest
 from ..security import verify_password
-from ..utils import iso, is_active
+from ..utils import is_active, iso
 
 router = APIRouter(prefix="/v2/public-links", tags=["public-download"])
 

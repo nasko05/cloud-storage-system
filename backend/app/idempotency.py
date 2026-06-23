@@ -21,7 +21,7 @@ ActionResult = tuple[int, dict]
 
 
 def _record_id(user_id: str, scope: str, key: str) -> str:
-    digest = hashlib.sha256(f"{user_id}:{scope}:{key}".encode("utf-8")).hexdigest()
+    digest = hashlib.sha256(f"{user_id}:{scope}:{key}".encode()).hexdigest()
     return f"{scope}:{digest}"
 
 

@@ -83,7 +83,7 @@ def list_children(
     page_file_ids = [row.id for row in window if isinstance(row, File)]
     flags = derive_file_flags(db, page_file_ids)
 
-    items = []
+    items: list[dict] = []
     for row in window:
         if isinstance(row, Folder):
             items.append({
@@ -128,6 +128,7 @@ def create_folder(
         name = payload.name or payload.folderName
         if not is_valid_name(name):
             raise ApiError(400, "Valid folder name required")
+        assert name is not None  # narrowed by is_valid_name
         if name_conflict(db, user.id, folder_id, Folder, name):
             raise ApiError(409, "A folder with that name already exists in destination folder")
 

@@ -1,5 +1,6 @@
-from app import backup
 from conftest import auth_header, register_and_login, upload_file
+
+from app import backup
 
 
 def test_backup_restore_round_trip(client, tmp_path):
