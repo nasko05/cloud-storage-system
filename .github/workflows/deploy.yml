@@ -46,10 +46,11 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          # Public address Caddy serves. A bare domain triggers automatic HTTPS.
-          # Override via a repo variable; defaults to the project's domain.
-          SITE_ADDRESS: ${{ vars.DRIVE_SITE_ADDRESS || 'personal-drive-io.com' }}
-          CORS_ORIGINS: ${{ vars.DRIVE_CORS_ALLOW_ORIGINS || 'https://personal-drive-io.com' }}
+          # Public address(es) Caddy serves. Bare domains trigger automatic
+          # HTTPS; space-separated to serve both apex and www. Override via repo
+          # variables. CORS origins are comma-separated (parsed by the app).
+          SITE_ADDRESS: ${{ vars.DRIVE_SITE_ADDRESS || 'personal-drive-io.com www.personal-drive-io.com' }}
+          CORS_ORIGINS: ${{ vars.DRIVE_CORS_ALLOW_ORIGINS || 'https://personal-drive-io.com,https://www.personal-drive-io.com' }}
         run: |
           set -euo pipefail
           mkdir -p ~/.ssh

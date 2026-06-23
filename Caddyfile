@@ -1,8 +1,10 @@
 # Reverse proxy for the Personal Cloud Storage app.
 #
 # DRIVE_SITE_ADDRESS controls how the app is served:
-#   :80                  -> plain HTTP on the server's IP (default; no domain)
-#   drive.example.com    -> Caddy auto-provisions a Let's Encrypt HTTPS cert
+#   :80                           -> plain HTTP on the server's IP (default)
+#   example.com                   -> auto Let's Encrypt HTTPS for one domain
+#   example.com www.example.com   -> serve (and get certs for) both; each domain
+#                                    needs its own DNS A record at the server
 #
 # To switch to HTTPS later: point a DNS A record at the server, set
 # DRIVE_SITE_ADDRESS=yourdomain in .env, and redeploy. Nothing else changes.
