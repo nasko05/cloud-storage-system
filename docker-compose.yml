@@ -65,6 +65,14 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    # Use public resolvers for outbound lookups (e.g. Let's Encrypt's ACME API).
+    # Without this, a host running systemd-resolved hands the container a
+    # 127.0.0.53 stub resolver that doesn't exist inside the container, so cert
+    # issuance fails. Service names (app, db) still resolve via Docker's embedded
+    # DNS on the Compose network.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -74,6 +82,10 @@ services:
     image: clamav/clamav:1.4
     restart: unless-stopped
     profiles: ["antivirus"]
+    # ClamAV's freshclam needs working outbound DNS to fetch virus definitions.
+    dns:
+      - 1.1.1.1
+      - 8.8.8.8
     volumes:
       - clamav_data:/var/lib/clamav
     healthcheck:
