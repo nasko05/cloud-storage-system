@@ -1,75 +1,45 @@
-import {
-  AuthenticationDetails,
-  CognitoUser,
-  CognitoUserAttribute,
-  CognitoUserSession,
-  CognitoUserPool
-} from 'amazon-cognito-identity-js';
 import { config } from './config';
 
-const userPool = new CognitoUserPool({
-  UserPoolId: config.userPoolId,
-  ClientId: config.clientId
-});
+const TOKEN_KEY = 'drive.accessToken';
+const EMAIL_KEY = 'drive.email';
 
-export const register = async (email: string, password: string): Promise<CognitoUser> =>
-  new Promise((resolve, reject) => {
-    const attributeList = [new CognitoUserAttribute({ Name: 'email', Value: email })];
+interface RegisterResult {
+  confirmationRequired: boolean;
+}
 
-    userPool.signUp(email, password, attributeList, [], (error, result) => {
-      if (error || !result?.user) {
-        reject(error ?? new Error('Registration failed'));
-        return;
-      }
-      resolve(result.user);
-    });
+async function authRequest<T>(path: string, body: unknown): Promise<T> {
+  const resp = await fetch(`${config.apiEndpoint}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body)
   });
 
-export const confirmRegistration = async (email: string, code: string): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const user = new CognitoUser({ Username: email, Pool: userPool });
-    user.confirmRegistration(code, true, (error, result) => {
-      if (error || !result) {
-        reject(error ?? new Error('Confirmation failed'));
-        return;
-      }
-      resolve(result);
-    });
-  });
-
-export const login = async (email: string, password: string): Promise<string> =>
-  new Promise((resolve, reject) => {
-    const user = new CognitoUser({ Username: email, Pool: userPool });
-    const authDetails = new AuthenticationDetails({ Username: email, Password: password });
-
-    user.authenticateUser(authDetails, {
-      onSuccess: (result) => resolve(result.getIdToken().getJwtToken()),
-      onFailure: (error) => reject(error),
-      newPasswordRequired: () => reject(new Error('Password change required'))
-    });
-  });
-
-export const logout = (): void => {
-  const user = userPool.getCurrentUser();
-  if (user) {
-    user.signOut();
+  const data = (await resp.json().catch(() => ({}))) as T & { error?: string };
+  if (!resp.ok) {
+    throw new Error(data.error || `Request failed with status ${resp.status}`);
   }
+  return data;
+}
+
+export const register = async (email: string, password: string): Promise<RegisterResult> => {
+  const result = await authRequest<RegisterResult>('/v2/auth/register', { email, password });
+  return { confirmationRequired: Boolean(result.confirmationRequired) };
 };
 
-export const getToken = async (): Promise<string | null> =>
-  new Promise((resolve) => {
-    const user = userPool.getCurrentUser();
-    if (!user) {
-      resolve(null);
-      return;
-    }
+export const confirmRegistration = async (email: string, code: string): Promise<void> => {
+  await authRequest<{ confirmed: boolean }>('/v2/auth/confirm', { email, code });
+};
 
-    user.getSession((error: Error | null, session: CognitoUserSession | null) => {
-      if (error || !session?.isValid()) {
-        resolve(null);
-        return;
-      }
+export const login = async (email: string, password: string): Promise<string> => {
+  const result = await authRequest<{ token: string }>('/v2/auth/login', { email, password });
+  localStorage.setItem(TOKEN_KEY, result.token);
+  localStorage.setItem(EMAIL_KEY, email);
+  return result.token;
+};
 
-      resolve(session.getIdToken().getJwtToken());
-    });
-  });
+export const logout = (): void => {
+  localStorage.removeItem(TOKEN_KEY);
+  localStorage.removeItem(EMAIL_KEY);
+};
+
+export const getToken = async (): Promise<string | null> => localStorage.getItem(TOKEN_KEY);

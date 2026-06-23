@@ -1,105 +1,92 @@
-# Backend - Personal Cloud Storage (v2 API)
+# Backend — Personal Cloud Storage
 
-Serverless AWS backend for private file storage, sharing, public links, and async archive downloads.
+Self-contained FastAPI backend. Replaces the former AWS stack (8 Lambdas + API
+Gateway + Cognito + DynamoDB + S3 + SQS) with one process backed by PostgreSQL
+and the local filesystem.
 
-## Stack components
-
-- API Gateway HTTP API (JWT auth for private routes)
-- Cognito User Pool + App Client
-- Lambda functions (Python 3.11)
-  - `drive-files-fn`
-  - `drive-folders-fn`
-  - `drive-shares-fn`
-  - `drive-public-links-admin-fn`
-  - `drive-download-fn`
-  - `drive-public-download-fn`
-  - `drive-archive-api-fn`
-  - `drive-archive-worker-fn`
-- S3 bucket for file bytes + generated archive ZIP files
-- DynamoDB metadata table `MetadataTableV2` (single-table design with GSIs + TTL)
-- SQS queue for archive jobs
-
-## Deploy
+## Run locally
 
 ```bash
-cp .env.example .env
-./deploy.sh                 # defaults: ENV_NAME=dev, AWS_REGION=eu-central-1
-./deploy.sh prod eu-west-1 # custom environment and region
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements-dev.txt
+
+# SQLite + local storage, no frontend (API only)
+DRIVE_SECRET_KEY=dev DRIVE_SERVE_FRONTEND=false uvicorn app.main:app --reload
 ```
 
-The deploy script:
-- packages v2 Lambda zips from `lambdas/`
-- uploads artifacts to an env-specific S3 artifact bucket (hash-versioned keys)
-- deploys `cloudformation_stack.yaml` with artifact bucket/code-key parameters
-- updates Lambda code through CloudFormation only (no post-deploy `update-function-code` drift step)
+Configuration is environment-driven with the `DRIVE_` prefix — see
+`.env.example`. The only value that matters in production is `DRIVE_SECRET_KEY`.
 
-## CloudFormation outputs to keep
+## Tests
 
-- `ApiEndpoint`
-- `UserPoolId`
-- `UserPoolClientId`
-- `S3BucketName`
-- `MetadataTableV2Name`
-- `ArchiveJobQueueUrl`
+```bash
+python -m pytest tests/ -q
+```
 
-## Routes
+Tests run against an isolated SQLite database and a temp storage dir, using
+FastAPI's `TestClient`.
 
-### Private routes (JWT)
+## Management CLI
 
-| Method | Path | Lambda |
-|---|---|---|
-| `POST` | `/v2/files/uploads` | `drive-files-fn` |
-| `POST` | `/v2/files/{fileId}/finalize` | `drive-files-fn` |
-| `PATCH` | `/v2/files/{fileId}` | `drive-files-fn` |
-| `DELETE` | `/v2/files/{fileId}` | `drive-files-fn` |
-| `GET` | `/v2/folders/{folderId}/children` | `drive-folders-fn` |
-| `POST` | `/v2/folders/{folderId}/folders` | `drive-folders-fn` |
-| `PATCH` | `/v2/folders/{folderId}` | `drive-folders-fn` |
-| `DELETE` | `/v2/folders/{folderId}` | `drive-folders-fn` |
-| `GET` | `/v2/shares/inbound` | `drive-shares-fn` |
-| `GET` | `/v2/files/{fileId}/shares` | `drive-shares-fn` |
-| `PUT` | `/v2/files/{fileId}/shares/{principal}` | `drive-shares-fn` |
-| `PATCH` | `/v2/files/{fileId}/shares/{principal}` | `drive-shares-fn` |
-| `DELETE` | `/v2/files/{fileId}/shares/{principal}` | `drive-shares-fn` |
-| `POST` | `/v2/files/{fileId}/public-links` | `drive-public-links-admin-fn` |
-| `GET` | `/v2/files/{fileId}/public-links` | `drive-public-links-admin-fn` |
-| `PATCH` | `/v2/public-links/{token}` | `drive-public-links-admin-fn` |
-| `DELETE` | `/v2/public-links/{token}` | `drive-public-links-admin-fn` |
-| `POST` | `/v2/download/files/{fileId}` | `drive-download-fn` |
-| `POST` | `/v2/download/archives` | `drive-archive-api-fn` |
-| `GET` | `/v2/download/archives/{archiveJobId}` | `drive-archive-api-fn` |
+```bash
+python -m app.cli init                       # create tables
+python -m app.cli export -o backup.json      # snapshot all tables to JSON
+python -m app.cli import -i backup.json --replace
+```
 
-### Public routes (no JWT)
+The JSON snapshot round-trips between SQLite and PostgreSQL (see
+`docs/DEPLOYMENT.md` for migration). File bytes are migrated by copying the
+storage directory.
 
-| Method | Path | Lambda |
-|---|---|---|
-| `GET` | `/v2/public-links/{token}` | `drive-public-download-fn` |
-| `POST` | `/v2/public-links/{token}/download` | `drive-public-download-fn` |
+## API surface (v2)
+
+### Auth (no JWT)
+
+| Method | Path                | Purpose                  |
+|--------|---------------------|--------------------------|
+| POST   | `/v2/auth/register` | Create account           |
+| POST   | `/v2/auth/confirm`  | Confirm (if enabled)     |
+| POST   | `/v2/auth/login`    | Get a JWT access token   |
+
+### Private (JWT)
+
+| Method | Path |
+|--------|------|
+| POST | `/v2/files/uploads` |
+| POST | `/v2/files/{fileId}/finalize` |
+| PATCH | `/v2/files/{fileId}` |
+| DELETE | `/v2/files/{fileId}` |
+| GET | `/v2/folders/{folderId}/children` |
+| POST | `/v2/folders/{folderId}/folders` |
+| PATCH | `/v2/folders/{folderId}` |
+| DELETE | `/v2/folders/{folderId}` |
+| GET | `/v2/shares/inbound` |
+| GET | `/v2/files/{fileId}/shares` |
+| PUT | `/v2/files/{fileId}/shares/{principal}` |
+| PATCH | `/v2/files/{fileId}/shares/{principal}` |
+| DELETE | `/v2/files/{fileId}/shares/{principal}` |
+| POST | `/v2/files/{fileId}/public-links` |
+| GET | `/v2/files/{fileId}/public-links` |
+| PATCH | `/v2/public-links/{token}` |
+| DELETE | `/v2/public-links/{token}` |
+| POST | `/v2/download/files/{fileId}` |
+| POST | `/v2/download/archives` |
+| GET | `/v2/download/archives/{archiveJobId}` |
+
+### Public (no JWT)
+
+| Method | Path |
+|--------|------|
+| GET | `/v2/public-links/{token}` |
+| POST | `/v2/public-links/{token}/download` |
+| PUT | `/v2/blob/upload?token=…` (signed) |
+| GET | `/v2/blob/download?token=…` (signed) |
 
 ## Notes
 
-- Share/public-link expiry uses DynamoDB TTL (`ttl`) plus in-code checks.
-- Upload lifecycle is two-step: init (`pending`) then finalize (`ready`) after object confirmation.
-- Archive downloads are async via SQS worker; client polls job status endpoint.
-- Legacy v1 routes (`/upload`, `/download`, `/zip`, `/files`, `/public/{token}`) and v1 lambdas were removed.
-
-## Local backend tests
-
-```bash
-python3 -m unittest discover -s backend/tests -p 'test_*.py'
-```
-
-## Local benchmarks
-
-```bash
-python3 backend/benchmarks/run_benchmarks.py --smoke
-python3 backend/benchmarks/run_benchmarks.py
-```
-
-## CI
-
-- Workflow: `/Users/adonev/workspace/cloud-storage-system/.github/workflows/backend-ci.yml`
-- Runs on push/PR:
-  - lambda compile checks
-  - backend unittest suite
-  - benchmark smoke checks
+- Upload is two-step: init (`pending`) → PUT bytes to the signed URL → finalize
+  (`ready`) after the object is confirmed on disk.
+- Share / public-link expiry is enforced in-code against stored `expires_at`.
+- Archive ZIPs are built by an in-process worker thread; clients poll the job
+  status endpoint. Jobs left mid-flight are re-enqueued on restart.
+- `Idempotency-Key` is honoured on all mutating routes.

@@ -2,6 +2,10 @@
 docs/*
 !docs/LAMBDA_REFACTOR_PLAN.md
 !docs/BACKEND_TECH_DEBT.md
+!docs/DEPLOYMENT.md
+!docs/ARCHITECTURE.md
 
-# Local AWS profile (real config belongs in ~/.aws/config)
+# Local env / runtime data
 /profile
+.env
+data/

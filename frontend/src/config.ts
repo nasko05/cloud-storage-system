@@ -1,13 +1,11 @@
 interface AppConfig {
+  // Base URL of the backend API. Empty string means same-origin, which is the
+  // case when the FastAPI server serves this built frontend. For local dev
+  // against a separate backend, set REACT_APP_API_ENDPOINT (e.g.
+  // http://localhost:8000).
   apiEndpoint: string;
-  userPoolId: string;
-  clientId: string;
-  region: string;
 }
 
 export const config: AppConfig = {
-  apiEndpoint: process.env.REACT_APP_API_ENDPOINT ?? '',
-  userPoolId: process.env.REACT_APP_USER_POOL_ID ?? '',
-  clientId: process.env.REACT_APP_COGNITO_CLIENT_ID ?? '',
-  region: process.env.REACT_APP_REGION ?? 'eu-central-1'
+  apiEndpoint: process.env.REACT_APP_API_ENDPOINT ?? ''
 };

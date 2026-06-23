@@ -1,0 +1,123 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  static:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Ruff (lint + import order)
+        working-directory: backend
+        run: ruff check app tests
+      - name: Mypy (type check)
+        working-directory: backend
+        run: mypy app
+
+  backend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Run backend tests (SQLite) with coverage gate
+        working-directory: backend
+        run: python -m pytest tests/ -q
+
+  backend-postgres:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: drive
+          POSTGRES_PASSWORD: drive
+          POSTGRES_DB: drive
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U drive"
+          --health-interval 10s --health-timeout 5s --health-retries 5
+    env:
+      DRIVE_SECRET_KEY: ci-secret
+      DRIVE_DATABASE_URL: postgresql+psycopg2://drive:drive@localhost:5432/drive
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+      - name: Install backend dependencies
+        working-directory: backend
+        run: pip install -r requirements-dev.txt
+      - name: Apply Alembic migrations on PostgreSQL
+        working-directory: backend
+        run: alembic upgrade head
+      - name: Run backend tests against PostgreSQL
+        working-directory: backend
+        env:
+          DRIVE_RUN_MIGRATIONS: 'false'
+        run: python -m pytest tests/ -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm install --legacy-peer-deps --no-audit --no-fund
+      - name: Type-check
+        working-directory: frontend
+        run: npx tsc --noEmit -p tsconfig.json
+      - name: Build (lints via react-scripts)
+        working-directory: frontend
+        run: CI=false npm run build
+
+  docker:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build image
+        run: docker build -t personal-drive .
+      - name: Compose up + health smoke
+        run: |
+          echo "DRIVE_SECRET_KEY=ci-secret" > .env
+          docker compose up -d
+          ok=""
+          for i in $(seq 1 40); do
+            if curl -fsS http://localhost:8000/healthz; then ok=1; break; fi
+            cid="$(docker compose ps -q app)"
+            if [ -z "$cid" ] || [ "$(docker inspect -f '{{.State.Running}}' "$cid" 2>/dev/null)" != "true" ]; then
+              echo "app container is not running; aborting early"
+              break
+            fi
+            sleep 3
+          done
+          if [ -z "$ok" ]; then
+            echo "==== docker compose ps ===="; docker compose ps
+            echo "==== app logs ===="; docker compose logs app
+            docker compose down -v
+            exit 1
+          fi
+          echo "health OK"
+          docker compose down -v
