@@ -1,0 +1,61 @@
+name: Deploy
+
+# Continuous deployment to the Contabo VPS.
+#
+# This runs ONLY after the CI workflow finishes successfully on `main`, so a
+# red build never reaches the server. It opens an SSH connection to the VPS and
+# runs the same update you would run by hand: pull the new code and rebuild the
+# Docker stack (with the antivirus profile). All persistent state lives on named
+# volumes, so the rebuild never touches accounts, files, shares or backups.
+#
+# Required repository secrets (Settings -> Secrets and variables -> Actions):
+#   DEPLOY_HOST     - VPS IP or hostname (e.g. drive.example.com)
+#   DEPLOY_USER     - the deploy user on the VPS (e.g. deploy)
+#   DEPLOY_SSH_KEY  - the PRIVATE key whose public half is in the deploy
+#                     user's ~/.ssh/authorized_keys on the VPS
+#
+# See docs/DEPLOYMENT_CONTABO.md for the one-time server setup that creates the
+# deploy user and the SSH key referenced above.
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [main]
+
+# Never run two deploys at once; cancel an in-flight one if a newer build lands.
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    # Only deploy when the CI run we are chaining off actually passed.
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Deploy over SSH
+        env:
+          DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
+          DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
+          DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
+        run: |
+          set -euo pipefail
+          mkdir -p ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          # Trust the host on first contact (TOFU). For stronger security, replace
+          # this with a pinned entry: store the VPS host key as a secret and write
+          # it to ~/.ssh/known_hosts instead of scanning.
+          ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
+            set -euo pipefail
+            cd ~/cloud-storage-system
+            git fetch origin main
+            git reset --hard origin/main
+            # --profile antivirus brings up the ClamAV container alongside the app.
+            docker compose --profile antivirus up -d --build
+            # Reclaim disk from the previous image build (important on a small box).
+            docker image prune -f
+            docker compose ps
+          REMOTE

@@ -1,5 +1,9 @@
 # Deploying on a VPS
 
+> Using **Contabo** with antivirus and an automatic deployment pipeline? Follow
+> the tailored walkthrough in [DEPLOYMENT_CONTABO.md](DEPLOYMENT_CONTABO.md)
+> instead — it supersedes this generic guide for that provider.
+
 This guide sets up the Personal Cloud Storage system on any fresh Linux VPS
 (Ubuntu/Debian shown). The stack runs as two containers via Docker Compose: the
 **app** and a dedicated **PostgreSQL** database. **All persistent state lives on

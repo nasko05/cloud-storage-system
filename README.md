@@ -40,7 +40,9 @@ docker compose up -d --build
 Open <http://localhost:8000>, register, and start uploading. The app and its
 PostgreSQL database run as two containers; data persists in the `db_data` and
 `blob_data` volumes across rebuilds. Full server setup, HTTPS, backups and
-migration: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**.
+migration: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. For a provider-specific
+walkthrough with antivirus and an auto-deploy pipeline, see
+**[docs/DEPLOYMENT_CONTABO.md](docs/DEPLOYMENT_CONTABO.md)**.
 
 ## Local development
 
