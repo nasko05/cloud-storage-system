@@ -95,6 +95,7 @@ def test_is_descendant_folder(db):
     assert services.is_descendant_folder(db, "u1", "grandchild", "parent") is True
     assert services.is_descendant_folder(db, "u1", "parent", "child") is False
     # candidate owned by someone else -> stops, not a descendant
+    _user(db, "other")
     _folder(db, "other", "x", parent="root")
     assert services.is_descendant_folder(db, "u1", "x", "parent") is False
 

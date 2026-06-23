@@ -10,7 +10,7 @@ import logging
 import time
 from collections.abc import Iterator
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import DeclarativeBase, Session, sessionmaker
 
@@ -33,6 +33,15 @@ def _engine_kwargs(url: str) -> dict:
 
 engine = create_engine(settings.database_url, **_engine_kwargs(settings.database_url))
 SessionLocal = sessionmaker(bind=engine, autoflush=False, expire_on_commit=False, future=True)
+
+if settings.database_url.startswith("sqlite"):
+    # SQLite disables foreign keys by default; enable them so behaviour (and
+    # tests) match PostgreSQL, which always enforces them.
+    @event.listens_for(engine, "connect")
+    def _enable_sqlite_foreign_keys(dbapi_connection, _record):
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
 
 
 def _upgrade_to_head() -> None:
