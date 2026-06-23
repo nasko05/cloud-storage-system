@@ -59,16 +59,16 @@ Frontend (against the backend above):
 
 ```bash
 cd frontend
-cp .env.example .env        # REACT_APP_API_ENDPOINT=http://localhost:8000
-npm install --legacy-peer-deps
-npm start                   # http://localhost:3000
+cp .env.example .env        # VITE_API_ENDPOINT=http://localhost:8000
+npm install
+npm run dev                 # http://localhost:3000 (Vite)
 ```
 
 ## Tests
 
 ```bash
 cd backend && python -m pytest tests/ -q      # backend API/contract tests
-cd frontend && CI=false npm run build         # frontend type-check + build
+cd frontend && npm run build                   # frontend type-check (tsc) + Vite build
 ```
 
 ## Repository layout

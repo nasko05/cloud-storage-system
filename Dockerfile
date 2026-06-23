@@ -9,9 +9,9 @@
 FROM node:24-bookworm-slim AS frontend
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
-RUN npm install --legacy-peer-deps --no-audit --no-fund
+RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
-RUN CI=false npm run build
+RUN npm run build
 
 # ---- Stage 2: runtime ----
 FROM python:3.11-slim-bookworm AS runtime
