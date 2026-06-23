@@ -279,6 +279,25 @@ docker compose exec app python -m app.cli backup
 docker compose exec app python -m app.cli verify-backup -i /data/backups/<bundle>.tar.gz
 ```
 
+### Cleaning up partial uploads
+
+An upload that never finishes (the browser dies, or the byte PUT is blocked)
+leaves a `pending` file record — it clutters the drive and can cause "name
+already exists" (409) errors on retry. The housekeeping sweep purges `pending`
+uploads older than `DRIVE_PARTIAL_UPLOAD_MAX_AGE_HOURS` (default 24, set to 0 to
+disable). To clean up on demand:
+
+```bash
+# preview what would be removed (no changes)
+docker compose exec app python -m app.cli cleanup-partial-uploads --dry-run
+
+# remove all pending uploads regardless of age (e.g. after a failed batch)
+docker compose exec app python -m app.cli cleanup-partial-uploads --older-than-hours 0
+```
+
+Finalized files are never touched. In the UI, deleting a non-empty folder now
+prompts to cascade-delete its contents.
+
 **HDD note:** these Storage VPS plans are spinning disk. For low traffic that is
 fine; the only HDD-sensitive part is PostgreSQL under heavy concurrency, which a
 personal/low-traffic drive will not hit.

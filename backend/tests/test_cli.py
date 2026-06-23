@@ -43,3 +43,44 @@ def test_cli_verify_corrupt_returns_nonzero(client, tmp_path):
 def test_cli_requires_subcommand(client):
     with pytest.raises(SystemExit):
         main([])
+
+
+def test_cli_cleanup_partial_uploads(client, capsys):
+    from app.database import SessionLocal
+    from app.models import File
+    from app.utils import now_utc
+
+    token, user_id, _ = register_and_login(client)
+    db = SessionLocal()
+    try:
+        from datetime import timedelta
+
+        stale = File(
+            owner_id=user_id, owner_email="o@o.com", filename="ghost.bin",
+            parent_folder_id="root", content_type="application/octet-stream",
+            size=0, status="pending", storage_key="",
+            created_at=now_utc() - timedelta(hours=48),
+        )
+        db.add(stale)
+        db.commit()
+        stale_id = stale.id
+    finally:
+        db.close()
+
+    # Dry-run keeps the row.
+    assert main(["cleanup-partial-uploads", "--dry-run"]) == 0
+    assert "Would remove 1" in capsys.readouterr().out
+    db = SessionLocal()
+    try:
+        assert db.get(File, stale_id) is not None
+    finally:
+        db.close()
+
+    # Real run removes it.
+    assert main(["cleanup-partial-uploads"]) == 0
+    assert "Removed 1" in capsys.readouterr().out
+    db = SessionLocal()
+    try:
+        assert db.get(File, stale_id) is None
+    finally:
+        db.close()

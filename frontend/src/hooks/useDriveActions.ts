@@ -125,20 +125,51 @@ export function useDriveActions({
     }
     setLoading(true);
     setError('');
+
+    const removeFromState = (): void => {
+      setFolders((current) => current.filter((f) => f.folderId !== folder.folderId));
+      setSelectedItems((prev) => {
+        const next = new Set(prev);
+        next.delete(folder.folderId);
+        return next;
+      });
+    };
+
+    // The API rejects deleting a non-empty folder with 409 "Folder is not empty".
+    // Offer to cascade-delete its contents instead of dead-ending.
+    const handleFailure = async (message: string): Promise<void> => {
+      if (!/not empty/i.test(message)) {
+        setError(message);
+        return;
+      }
+      if (
+        !window.confirm(
+          `"${folder.name}" is not empty. Delete it and everything inside? This cannot be undone.`
+        )
+      ) {
+        return;
+      }
+      try {
+        const result = await deleteFolder(folder.path, true);
+        if (result.error) {
+          setError(result.error);
+        } else {
+          removeFromState();
+        }
+      } catch (err) {
+        setError(err instanceof Error ? err.message : 'Failed to delete folder');
+      }
+    };
+
     try {
       const result = await deleteFolder(folder.path);
-      if (!result.error) {
-        setFolders((current) => current.filter((f) => f.folderId !== folder.folderId));
-        setSelectedItems((prev) => {
-          const next = new Set(prev);
-          next.delete(folder.folderId);
-          return next;
-        });
+      if (result.error) {
+        await handleFailure(result.error);
       } else {
-        setError(result.error);
+        removeFromState();
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to delete folder');
+      await handleFailure(err instanceof Error ? err.message : 'Failed to delete folder');
     }
     setLoading(false);
   }

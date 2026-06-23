@@ -10,13 +10,14 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime, timedelta
 
 from sqlalchemy import delete, select
 
 from . import backup, storage
 from .config import settings
 from .database import SessionLocal
-from .models import ArchiveJob, IdempotencyRecord, PublicLink, Share
+from .models import ArchiveJob, File, IdempotencyRecord, PublicLink, Share
 from .utils import now_utc
 
 logger = logging.getLogger("maintenance")
@@ -50,16 +51,64 @@ def cleanup(db) -> dict[str, int]:
         delete(IdempotencyRecord).where(IdempotencyRecord.expires_at < now)
     ).rowcount or 0
 
+    max_age_hours = settings.partial_upload_max_age_hours
+    if max_age_hours > 0:
+        counts["partial_uploads"] = _delete_stale_pending(db, now - timedelta(hours=max_age_hours))
+    else:
+        counts["partial_uploads"] = 0
+
     db.commit()
     if any(counts.values()):
         logger.info("cleanup removed %s", counts)
     return counts
 
 
+def _stale_pending(db, cutoff: datetime) -> list[File]:
+    """Never-finalized uploads (status 'pending') created before ``cutoff``."""
+    return db.execute(
+        select(File).where(File.status == "pending", File.created_at < cutoff)
+    ).scalars().all()
+
+
+def _delete_stale_pending(db, cutoff: datetime) -> int:
+    """Delete stale pending uploads and any bytes already written. Does not
+    commit (the caller does, alongside the rest of the sweep)."""
+    stale = _stale_pending(db, cutoff)
+    for file in stale:
+        if file.storage_key:
+            storage.delete(file.storage_key)
+        db.delete(file)
+    return len(stale)
+
+
 def run_cleanup() -> dict[str, int]:
     db = SessionLocal()
     try:
         return cleanup(db)
+    finally:
+        db.close()
+
+
+def run_cleanup_partial_uploads(
+    older_than_hours: int, dry_run: bool = False
+) -> list[tuple[str, str]]:
+    """On-demand cleanup of abandoned uploads (CLI entry point).
+
+    Returns the ``(file_id, filename)`` pairs that were removed (or, with
+    ``dry_run``, that would be removed).
+    """
+    db = SessionLocal()
+    try:
+        cutoff = now_utc() - timedelta(hours=max(0, older_than_hours))
+        stale = _stale_pending(db, cutoff)
+        removed = [(f.id, f.filename) for f in stale]
+        if not dry_run and stale:
+            for file in stale:
+                if file.storage_key:
+                    storage.delete(file.storage_key)
+                db.delete(file)
+            db.commit()
+        return removed
     finally:
         db.close()
 

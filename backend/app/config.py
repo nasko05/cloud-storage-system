@@ -42,6 +42,10 @@ class Settings(BaseSettings):
     backup_retention: int = 10
     maintenance_interval_minutes: int = 60
     enable_scheduler: bool = True
+    # Abandoned ("pending", never-finalized) uploads older than this are purged
+    # by the housekeeping sweep. 0 disables auto-cleanup. On demand via the CLI:
+    # `python -m app.cli cleanup-partial-uploads`.
+    partial_upload_max_age_hours: int = 24
 
     # Antivirus (ClamAV over TCP); disabled by default
     clamav_enabled: bool = False

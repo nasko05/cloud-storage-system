@@ -376,9 +376,13 @@ export const createFolder = async (folderName: string, path?: string): Promise<C
   };
 };
 
-export const deleteFolder = async (path: string): Promise<ApiResult> => {
+export const deleteFolder = async (path: string, recursive = false): Promise<ApiResult> => {
   const folderId = await resolveFolderIdByPath(path);
-  const result = await DriveApiClient.authRequest<ApiResult>(`/v2/folders/${encodeURIComponent(folderId)}`, 'DELETE');
+  const query = recursive ? '?recursive=true' : '';
+  const result = await DriveApiClient.authRequest<ApiResult>(
+    `/v2/folders/${encodeURIComponent(folderId)}${query}`,
+    'DELETE'
+  );
   resetFolderPathCache();
   return result;
 };
