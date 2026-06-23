@@ -47,7 +47,7 @@ services:
       - "${DRIVE_PORT:-8000}:8000"
 
   clamav:
-    image: clamav/clamav:1.3
+    image: clamav/clamav:1.4
     restart: unless-stopped
     profiles: ["antivirus"]
     volumes:

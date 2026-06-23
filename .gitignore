@@ -3,6 +3,7 @@ docs/*
 !docs/LAMBDA_REFACTOR_PLAN.md
 !docs/BACKEND_TECH_DEBT.md
 !docs/DEPLOYMENT.md
+!docs/DEPLOYMENT_CONTABO.md
 !docs/ARCHITECTURE.md
 
 # Local env / runtime data
