@@ -8,3 +8,4 @@ PyJWT==2.10.1
 psycopg2-binary==2.9.10
 alembic==1.14.0
 clamd==1.0.2
+webauthn==2.5.2

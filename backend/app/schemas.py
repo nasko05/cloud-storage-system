@@ -24,6 +24,17 @@ class LoginRequest(BaseModel):
     password: str
 
 
+class PasskeyRegisterVerifyRequest(BaseModel):
+    credential: dict
+    challengeToken: str
+    name: str | None = Field(default=None, max_length=255)
+
+
+class PasskeyLoginVerifyRequest(BaseModel):
+    credential: dict
+    challengeToken: str
+
+
 class CreateUploadRequest(BaseModel):
     filename: str
     contentType: str | None = None

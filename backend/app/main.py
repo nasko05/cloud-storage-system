@@ -32,6 +32,7 @@ from .routers import (
     public_download,
     public_links,
     shares,
+    webauthn,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -77,6 +78,7 @@ async def _validation_handler(_request: Request, exc: RequestValidationError) ->
 
 for router in (
     auth.router,
+    webauthn.router,
     files.router,
     folders.router,
     shares.router,
