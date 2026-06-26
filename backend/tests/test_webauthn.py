@@ -65,9 +65,13 @@ def _assertion_to_json(assn: dict) -> dict:
     }
 
 
-def _register_passkey(client, token, device: SoftWebauthnDevice, name: str | None = None):
-    opts = client.post("/v2/auth/passkey/register/options", headers=auth_header(token)).json()
-    att = device.create(_options_to_device(opts["options"]), ORIGIN)
+def _register_passkey(
+    client, token, device: SoftWebauthnDevice, name: str | None = None, origin: str = ORIGIN
+):
+    headers = auth_header(token)
+    req_headers = {**headers, "Origin": origin}
+    opts = client.post("/v2/auth/passkey/register/options", headers=req_headers).json()
+    att = device.create(_options_to_device(opts["options"]), origin)
     return client.post(
         "/v2/auth/passkey/register/verify",
         json={
@@ -75,16 +79,18 @@ def _register_passkey(client, token, device: SoftWebauthnDevice, name: str | Non
             "challengeToken": opts["challengeToken"],
             "name": name,
         },
-        headers=auth_header(token),
+        headers=req_headers,
     )
 
 
-def _login_passkey(client, device: SoftWebauthnDevice):
-    opts = client.post("/v2/auth/passkey/login/options").json()
-    assn = device.get(_options_to_device(opts["options"]), ORIGIN)
+def _login_passkey(client, device: SoftWebauthnDevice, origin: str = ORIGIN):
+    req_headers = {"Origin": origin}
+    opts = client.post("/v2/auth/passkey/login/options", headers=req_headers).json()
+    assn = device.get(_options_to_device(opts["options"]), origin)
     return client.post(
         "/v2/auth/passkey/login/verify",
         json={"credential": _assertion_to_json(assn), "challengeToken": opts["challengeToken"]},
+        headers=req_headers,
     )
 
 
@@ -113,6 +119,23 @@ def test_full_passkey_flow(client):
     # The minted token is a real access token usable on protected endpoints.
     resp = client.get("/v2/folders/root/children", headers=auth_header(body["token"]))
     assert resp.status_code == 200
+
+
+def test_passkey_works_on_custom_domain(client):
+    # No DRIVE_WEBAUTHN_* config is set, so the RP ID / origin must be derived
+    # from the request's Origin header — this is what makes passkeys work on
+    # whatever domain the app is actually served from.
+    token, user_id, _ = register_and_login(client)
+    device = SoftWebauthnDevice()
+    origin = "https://drive.example.com"
+
+    reg = _register_passkey(client, token, device, origin=origin)
+    assert reg.status_code == 201, reg.text
+    assert device.rp_id == "drive.example.com"
+
+    login = _login_passkey(client, device, origin=origin)
+    assert login.status_code == 200, login.text
+    assert login.json()["userId"] == user_id
 
 
 def test_invalid_challenge_token_rejected(client):

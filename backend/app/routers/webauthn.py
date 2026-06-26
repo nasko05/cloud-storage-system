@@ -14,6 +14,7 @@ unchanged.
 from __future__ import annotations
 
 import json
+from urllib.parse import urlparse
 
 from fastapi import APIRouter, Depends, Request
 from sqlalchemy import select
@@ -57,6 +58,30 @@ router = APIRouter(prefix="/v2/auth/passkey", tags=["auth"])
 _CHALLENGE_TTL = 300
 
 
+def _resolve_rp(request: Request) -> tuple[str, list[str]]:
+    """Determine the WebAuthn RP ID and acceptable origin(s) for this request.
+
+    Explicit config wins (for split-domain / proxy deployments). Otherwise both
+    are derived from the browser's ``Origin`` (falling back to ``Referer``)
+    header so passkeys work on whatever domain the app is served from without
+    any configuration. The final fallback keeps non-browser callers (tests)
+    working.
+    """
+    if settings.webauthn_rp_id:
+        origins = list(settings.webauthn_origin)
+        return settings.webauthn_rp_id, origins
+
+    for header in ("origin", "referer"):
+        value = request.headers.get(header)
+        if not value:
+            continue
+        parsed = urlparse(value)
+        if parsed.scheme and parsed.hostname:
+            return parsed.hostname, [f"{parsed.scheme}://{parsed.netloc}"]
+
+    return "localhost", ["http://localhost:5173"]
+
+
 def _user_credentials(db: Session, user_id: str) -> list[WebAuthnCredential]:
     stmt = select(WebAuthnCredential).where(WebAuthnCredential.user_id == user_id)
     return list(db.execute(stmt).scalars().all())
@@ -68,11 +93,14 @@ def _options_json(options) -> dict:
 
 @router.post("/register/options")
 def register_options(
-    db: Session = Depends(get_db), user: CurrentUser = Depends(get_current_user)
+    request: Request,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
 ) -> dict:
+    rp_id, _ = _resolve_rp(request)
     existing = _user_credentials(db, user.id)
     options = generate_registration_options(
-        rp_id=settings.webauthn_rp_id,
+        rp_id=rp_id,
         rp_name=settings.webauthn_rp_name,
         user_id=user.id.encode("utf-8"),
         user_name=user.email,
@@ -98,6 +126,7 @@ def register_options(
 @router.post("/register/verify", status_code=201)
 def register_verify(
     payload: PasskeyRegisterVerifyRequest,
+    request: Request,
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> dict:
@@ -105,12 +134,13 @@ def register_verify(
     if not claims or claims.get("typ") != "reg" or claims.get("uid") != user.id:
         raise ApiError(400, "Invalid or expired challenge")
 
+    rp_id, origins = _resolve_rp(request)
     try:
         verification = verify_registration_response(
             credential=json.dumps(payload.credential),
             expected_challenge=base64url_to_bytes(claims["ch"]),
-            expected_rp_id=settings.webauthn_rp_id,
-            expected_origin=settings.webauthn_origin,
+            expected_rp_id=rp_id,
+            expected_origin=origins,
             require_user_verification=False,
         )
     except (InvalidRegistrationResponse, ValueError) as exc:
@@ -146,10 +176,11 @@ def login_options(request: Request, db: Session = Depends(get_db)) -> dict:
     if locked_for:
         raise ApiError(429, f"Too many attempts. Try again in {locked_for} seconds.")
 
+    rp_id, _ = _resolve_rp(request)
     # Empty allow_credentials => the browser offers any discoverable credential
     # for this RP (usernameless login).
     options = generate_authentication_options(
-        rp_id=settings.webauthn_rp_id,
+        rp_id=rp_id,
         allow_credentials=[],
         user_verification=UserVerificationRequirement.PREFERRED,
     )
@@ -184,12 +215,13 @@ def login_verify(
         login_rate_limiter.register_failure("passkey", client_ip)
         raise ApiError(401, "Passkey not recognized")
 
+    rp_id, origins = _resolve_rp(request)
     try:
         verification = verify_authentication_response(
             credential=json.dumps(payload.credential),
             expected_challenge=base64url_to_bytes(claims["ch"]),
-            expected_rp_id=settings.webauthn_rp_id,
-            expected_origin=settings.webauthn_origin,
+            expected_rp_id=rp_id,
+            expected_origin=origins,
             credential_public_key=base64url_to_bytes(cred.public_key),
             credential_current_sign_count=cred.sign_count,
             require_user_verification=False,
