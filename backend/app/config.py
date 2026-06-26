@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
@@ -54,7 +54,7 @@ class Settings(BaseSettings):
     sso_cookie_name: str = "drive_sso"
     sso_cookie_domain: str = ""
     sso_cookie_secure: bool = True
-    sso_cookie_samesite: str = "lax"
+    sso_cookie_samesite: Literal["lax", "strict", "none"] = "lax"
 
     # Per-user storage quota in bytes (0 = unlimited)
     user_quota_bytes: int = 0
