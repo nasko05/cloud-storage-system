@@ -115,6 +115,9 @@ jobs:
             # Sync to the exact state of origin/main and (re)build the stack.
             git fetch origin main
             git reset --hard origin/main
+            # docker-compose.yml references an external `web` network; ensure it
+            # exists before `up` (idempotent, safe to re-run).
+            docker network create web 2>/dev/null || true
             docker compose --profile antivirus up -d --build
             docker image prune -f
 
