@@ -49,6 +49,32 @@ class User(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
 
 
+class WebAuthnCredential(Base):
+    """A passkey (WebAuthn/FIDO2 credential) registered to a user.
+
+    A user may have many. ``credential_id`` and ``public_key`` are stored as
+    base64url strings (rather than raw bytes) so the schema is identical on
+    SQLite and Postgres; the router encodes/decodes at the boundary.
+    """
+
+    __tablename__ = "webauthn_credentials"
+    __table_args__ = (Index("ix_webauthn_user", "user_id"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    credential_id: Mapped[str] = mapped_column(
+        String(512), unique=True, index=True, nullable=False
+    )
+    public_key: Mapped[str] = mapped_column(Text, nullable=False)
+    sign_count: Mapped[int] = mapped_column(BigInteger, default=0, nullable=False)
+    transports: Mapped[list] = mapped_column(JSON, default=list)
+    user_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False
+    )
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=_now)
+    last_used_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class Folder(Base):
     __tablename__ = "folders"
     __table_args__ = (Index("ix_folders_owner_parent", "owner_id", "parent_folder_id"),)

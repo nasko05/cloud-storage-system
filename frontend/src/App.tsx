@@ -32,11 +32,12 @@ import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
+import KeyRoundedIcon from '@mui/icons-material/KeyRounded';
 import FolderSharedRoundedIcon from '@mui/icons-material/FolderSharedRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
-import { logout, getToken } from './auth';
+import { logout, getToken, registerPasskey, passkeySupported } from './auth';
 import { createFolder } from './api';
 import {
   fetchFiles,
@@ -311,6 +312,19 @@ function App(): JSX.Element {
     setFolderTreeByPath({});
     setExpandedFolders(new Set(['']));
     setCurrentPath('');
+  };
+
+  const handleAddPasskey = async (): Promise<void> => {
+    if (!token) return;
+    setError('');
+    try {
+      await registerPasskey(token);
+      setShareSuccess('Passkey added. You can now sign in with it.');
+    } catch (caughtError: unknown) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : 'Could not add passkey';
+      setError(message);
+    }
   };
 
   // =========================================================================
@@ -794,15 +808,28 @@ function App(): JSX.Element {
             <Typography variant="h6" fontWeight={700}>
               Personal Drive
             </Typography>
-            <Button
-              color="inherit"
-              variant="outlined"
-              size="small"
-              onClick={handleLogout}
-              startIcon={<LogoutRoundedIcon />}
-            >
-              Logout
-            </Button>
+            <Box sx={{ display: 'flex', gap: 1 }}>
+              {passkeySupported() && (
+                <Button
+                  color="inherit"
+                  variant="outlined"
+                  size="small"
+                  onClick={handleAddPasskey}
+                  startIcon={<KeyRoundedIcon />}
+                >
+                  Add passkey
+                </Button>
+              )}
+              <Button
+                color="inherit"
+                variant="outlined"
+                size="small"
+                onClick={handleLogout}
+                startIcon={<LogoutRoundedIcon />}
+              >
+                Logout
+              </Button>
+            </Box>
           </Toolbar>
         </Paper>
 

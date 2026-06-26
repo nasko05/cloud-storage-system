@@ -33,6 +33,15 @@ class Settings(BaseSettings):
     login_window_seconds: int = 300
     login_lockout_seconds: int = 900
 
+    # WebAuthn / passkeys. RP ID is the registrable domain (no scheme/port/path);
+    # origin is the full scheme://host:port the page is served from. localhost is a
+    # secure context, so http://localhost works for dev; production needs HTTPS and
+    # a real domain. ``webauthn_origin`` is a comma-split list so one config can
+    # cover the Vite dev server and the same-origin production build.
+    webauthn_rp_id: str = "localhost"
+    webauthn_rp_name: str = "Personal Drive"
+    webauthn_origin: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+
     # Per-user storage quota in bytes (0 = unlimited)
     user_quota_bytes: int = 0
 
@@ -69,7 +78,7 @@ class Settings(BaseSettings):
     serve_frontend: bool = True
     frontend_dir: Path = Path("./static")
 
-    @field_validator("cors_allow_origins", mode="before")
+    @field_validator("cors_allow_origins", "webauthn_origin", mode="before")
     @classmethod
     def _split_origins(cls, value: object) -> object:
         if isinstance(value, str):

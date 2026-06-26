@@ -9,7 +9,13 @@ import {
   TextField,
   Typography
 } from '@mui/material';
-import { login, register, confirmRegistration } from '../auth';
+import {
+  login,
+  register,
+  confirmRegistration,
+  loginWithPasskey,
+  passkeySupported
+} from '../auth';
 
 type AuthMode = 'login' | 'register' | 'confirm';
 
@@ -55,6 +61,18 @@ export function AuthForm({ onAuthenticated }: AuthFormProps): React.ReactElement
       }
     } catch (caughtError: unknown) {
       const message = caughtError instanceof Error ? caughtError.message : 'Registration failed';
+      setError(message);
+    }
+  };
+
+  const handlePasskeyLogin = async (): Promise<void> => {
+    setError('');
+    try {
+      const authToken = await loginWithPasskey();
+      onAuthenticated(authToken);
+    } catch (caughtError: unknown) {
+      const message =
+        caughtError instanceof Error ? caughtError.message : 'Passkey sign-in failed';
       setError(message);
     }
   };
@@ -133,6 +151,17 @@ export function AuthForm({ onAuthenticated }: AuthFormProps): React.ReactElement
                     ? 'Register'
                     : 'Confirm'}
               </Button>
+
+              {authMode === 'login' && passkeySupported() && (
+                <Button
+                  type="button"
+                  size="large"
+                  variant="outlined"
+                  onClick={handlePasskeyLogin}
+                >
+                  Sign in with a passkey
+                </Button>
+              )}
 
               {authMode === 'confirm' ? (
                 <Button variant="text" onClick={() => setAuthMode('login')}>
