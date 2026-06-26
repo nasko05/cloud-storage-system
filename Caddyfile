@@ -11,3 +11,12 @@
 {$DRIVE_SITE_ADDRESS::80} {
 	reverse_proxy app:8000
 }
+
+# Co-hosted Rust app (space-io), a separate compose project reached over the
+# shared external `web` network. Caddy auto-provisions HTTPS for this subdomain
+# (needs its own DNS A record at the VPS). In local/dev (DRIVE_SITE_ADDRESS=:80,
+# no DNS for this name) Caddy logs ACME cert-retry errors for this block — that
+# is expected and harmless; the :80 site still serves fine.
+personal-area.personal-drive-io.com {
+	reverse_proxy space-io:7777
+}

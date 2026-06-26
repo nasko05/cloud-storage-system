@@ -78,6 +78,13 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    # Join the shared external `web` network so Caddy can reach co-hosted apps
+    # (e.g. space-io) by container name. Declaring networks opts the service out
+    # of auto-joining the default network, so `default` is listed explicitly to
+    # keep reaching `app`.
+    networks:
+      - default
+      - web
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -99,6 +106,12 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+
+networks:
+  # Shared, cross-project network so this Caddy can reverse-proxy to co-hosted
+  # apps (e.g. space-io). Create once on the host/CI: `docker network create web`.
+  web:
+    external: true
 
 volumes:
   db_data:
