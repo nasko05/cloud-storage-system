@@ -37,7 +37,9 @@ import FolderSharedRoundedIcon from '@mui/icons-material/FolderSharedRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
+import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded';
 import { logout, getToken, registerPasskey, passkeySupported } from './auth';
+import { config } from './config';
 import { createFolder } from './api';
 import {
   fetchFiles,
@@ -809,6 +811,18 @@ function App(): JSX.Element {
               Personal Drive
             </Typography>
             <Box sx={{ display: 'flex', gap: 1 }}>
+              {config.personalAreaUrl && (
+                <Button
+                  color="inherit"
+                  variant="outlined"
+                  size="small"
+                  href={config.personalAreaUrl}
+                  startIcon={<AutoStoriesRoundedIcon />}
+                  title="Open My Space — your notes editor"
+                >
+                  My Space
+                </Button>
+              )}
               {passkeySupported() && (
                 <Button
                   color="inherit"

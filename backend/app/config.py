@@ -44,6 +44,18 @@ class Settings(BaseSettings):
     webauthn_rp_name: str = "Personal Drive"
     webauthn_origin: Annotated[list[str], NoDecode] = []
 
+    # Single sign-on cookie. The access token is mirrored into a cookie so a
+    # sibling app on a co-hosted subdomain (the space-io editor at
+    # ``personal-area.<domain>``) is signed in by the same passkey login without
+    # a second prompt. Set ``sso_cookie_domain`` to the registrable parent
+    # domain (e.g. ``.example.com``) so the cookie is shared across subdomains;
+    # leave it empty for a host-only cookie (fine on localhost). The editor
+    # verifies the token with the *same* ``secret_key``.
+    sso_cookie_name: str = "drive_sso"
+    sso_cookie_domain: str = ""
+    sso_cookie_secure: bool = True
+    sso_cookie_samesite: str = "lax"
+
     # Per-user storage quota in bytes (0 = unlimited)
     user_quota_bytes: int = 0
 

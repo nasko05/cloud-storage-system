@@ -16,7 +16,7 @@ from __future__ import annotations
 import json
 from urllib.parse import urlparse
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from webauthn import (
@@ -49,6 +49,7 @@ from ..security import (
     create_signed_token,
     verify_signed_token,
 )
+from ..sso import set_sso_cookie
 from ..utils import now_utc
 
 router = APIRouter(prefix="/v2/auth/passkey", tags=["auth"])
@@ -195,6 +196,7 @@ def login_options(request: Request, db: Session = Depends(get_db)) -> dict:
 def login_verify(
     payload: PasskeyLoginVerifyRequest,
     request: Request,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> dict:
     client_ip = request.client.host if request.client else None
@@ -238,8 +240,10 @@ def login_verify(
     cred.last_used_at = now_utc()
     db.flush()
     login_rate_limiter.register_success("passkey", client_ip)
+    token = create_access_token(user.id, user.email)
+    set_sso_cookie(response, token)
     return {
-        "token": create_access_token(user.id, user.email),
+        "token": token,
         "userId": user.id,
         "email": user.email,
     }

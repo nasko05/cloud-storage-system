@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import secrets
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
@@ -15,6 +15,7 @@ from ..models import User
 from ..ratelimit import login_rate_limiter
 from ..schemas import ConfirmRequest, LoginRequest, RegisterRequest
 from ..security import create_access_token, hash_password, verify_password
+from ..sso import clear_sso_cookie, set_sso_cookie
 
 router = APIRouter(prefix="/v2/auth", tags=["auth"])
 
@@ -67,7 +68,12 @@ def confirm(payload: ConfirmRequest, db: Session = Depends(get_db)) -> dict:
 
 
 @router.post("/login")
-def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)) -> dict:
+def login(
+    payload: LoginRequest,
+    request: Request,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> dict:
     client_ip = request.client.host if request.client else None
     locked_for = login_rate_limiter.check_locked(payload.email, client_ip)
     if locked_for:
@@ -81,8 +87,18 @@ def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)
         raise ApiError(403, "Account is not confirmed yet")
 
     login_rate_limiter.register_success(payload.email, client_ip)
+    token = create_access_token(user.id, user.email)
+    set_sso_cookie(response, token)
     return {
-        "token": create_access_token(user.id, user.email),
+        "token": token,
         "userId": user.id,
         "email": user.email,
     }
+
+
+@router.post("/logout")
+def logout(response: Response) -> dict:
+    """Clear the SSO cookie. The Bearer token in localStorage is dropped by the
+    frontend separately; this only revokes the cross-subdomain cookie."""
+    clear_sso_cookie(response)
+    return {"loggedOut": True}

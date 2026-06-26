@@ -86,6 +86,12 @@ export const loginWithPasskey = async (): Promise<string> => {
 export const logout = (): void => {
   localStorage.removeItem(TOKEN_KEY);
   localStorage.removeItem(EMAIL_KEY);
+  // Best-effort: also clear the shared SSO cookie so the co-hosted editor is
+  // signed out too. Fire-and-forget — local state is cleared regardless.
+  void fetch(`${config.apiEndpoint}/v2/auth/logout`, {
+    method: 'POST',
+    credentials: 'include'
+  }).catch(() => undefined);
 };
 
 export const getToken = async (): Promise<string | null> => localStorage.getItem(TOKEN_KEY);
