@@ -33,14 +33,16 @@ class Settings(BaseSettings):
     login_window_seconds: int = 300
     login_lockout_seconds: int = 900
 
-    # WebAuthn / passkeys. RP ID is the registrable domain (no scheme/port/path);
-    # origin is the full scheme://host:port the page is served from. localhost is a
-    # secure context, so http://localhost works for dev; production needs HTTPS and
-    # a real domain. ``webauthn_origin`` is a comma-split list so one config can
-    # cover the Vite dev server and the same-origin production build.
-    webauthn_rp_id: str = "localhost"
+    # WebAuthn / passkeys. By default the RP ID and origin are derived from each
+    # incoming request (the browser's Origin/Referer), so passkeys work on
+    # whatever domain the app is actually served from without configuration.
+    # Set these only to pin them explicitly — e.g. when the frontend lives on a
+    # different host than the API, or behind a proxy that rewrites Origin. RP ID
+    # is the registrable domain (no scheme/port/path); origin is the full
+    # scheme://host:port, comma-split so several can be allowed at once.
+    webauthn_rp_id: str = ""
     webauthn_rp_name: str = "Personal Drive"
-    webauthn_origin: Annotated[list[str], NoDecode] = ["http://localhost:5173"]
+    webauthn_origin: Annotated[list[str], NoDecode] = []
 
     # Per-user storage quota in bytes (0 = unlimited)
     user_quota_bytes: int = 0
