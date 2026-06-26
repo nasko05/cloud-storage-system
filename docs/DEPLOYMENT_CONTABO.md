@@ -220,12 +220,17 @@ docker compose exec app python -m app.cli restore -i /data/backups/restore.tar.g
 ## 9. Automatic deployment pipeline
 
 The repo includes `.github/workflows/deploy.yml`. It runs **only after the CI
-workflow passes on `main`**, then SSHes into the VPS and runs
-`git reset --hard origin/main` + `docker compose --profile antivirus up -d --build`.
+workflow passes on `main`**, then **renders the server's `.env` from GitHub
+Secrets + Variables**, SSHes into the VPS, runs `git reset --hard origin/main` +
+`docker compose --profile antivirus up -d --build`, and health-checks the app.
 Because data is on volumes and the schema migrates on startup, every push to
 `main` redeploys safely.
 
-**One-time setup:**
+**Configuration lives entirely in GitHub** — there is no manual editing of files
+on the server. To change a setting, edit the Secret/Variable in the GitHub UI and
+re-run the Deploy workflow.
+
+### One-time setup
 
 1. **Generate a dedicated deploy SSH key** on your laptop (no passphrase, so CI
    can use it non-interactively):
@@ -240,18 +245,39 @@ Because data is on volumes and the schema migrates on startup, every push to
    ssh-copy-id -i ~/.ssh/drive_deploy.pub deploy@<vps-ip>
    ```
 
-3. **Add three GitHub repository secrets**
-   (Settings → Secrets and variables → Actions → New repository secret):
+3. **Add the repository Secrets** (Settings → Secrets and variables → Actions →
+   *Secrets*). These are sensitive and must stay **stable** — changing
+   `DRIVE_SECRET_KEY` logs everyone out, and `DRIVE_PG_PASSWORD` must match the
+   password the existing database volume was created with. Copy the latter two
+   from the server's current `.env` (`cat ~/cloud-storage-system/.env`):
 
    | Secret | Value |
    |---|---|
-   | `DEPLOY_HOST` | your VPS IP or `drive.example.com` |
+   | `DEPLOY_HOST` | your VPS IPv4 address |
    | `DEPLOY_USER` | `deploy` |
-   | `DEPLOY_SSH_KEY` | the **contents of the private key** `~/.ssh/drive_deploy` |
+   | `DEPLOY_SSH_KEY` | contents of the private key `~/.ssh/drive_deploy` |
+   | `DRIVE_SECRET_KEY` | the current value from the server `.env` |
+   | `DRIVE_PG_PASSWORD` | the current value from the server `.env` |
 
-4. **Merge to `main`.** The deploy workflow lives on `main`, so it activates once
-   merged. From then on: push to `main` → CI runs → on green, the VPS updates
-   itself.
+4. **(Optional) Add repository Variables** (same page → *Variables*) to override
+   defaults — all are non-sensitive:
+
+   | Variable | Default if unset |
+   |---|---|
+   | `DRIVE_SITE_ADDRESS` | `personal-drive-io.com www.personal-drive-io.com` |
+   | `DRIVE_CORS_ALLOW_ORIGINS` | `https://personal-drive-io.com,https://www.personal-drive-io.com` |
+   | `DRIVE_CLAMAV_ENABLED` | `true` |
+   | `DRIVE_USER_QUOTA_BYTES` | `0` (unlimited) |
+   | `DRIVE_BACKUP_INTERVAL_HOURS` | `24` |
+   | `DRIVE_BACKUP_RETENTION` | `10` |
+
+5. **Merge to `main`.** From then on: push to `main` → CI runs → on green, the
+   VPS updates itself and rewrites its `.env` from the values above.
+
+> **Safety:** if `DRIVE_SECRET_KEY` or `DRIVE_PG_PASSWORD` are missing, the deploy
+> aborts before touching the server, so a working `.env` is never clobbered.
+> Because the `.env` is now pipeline-managed, manual edits on the server are
+> overwritten on the next deploy — change config in GitHub instead.
 
 > The pipeline uses TOFU (`ssh-keyscan`) to trust the host on first contact. For
 > stronger security, store the VPS host key as a secret and write it to

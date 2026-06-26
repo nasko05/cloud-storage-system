@@ -4,23 +4,35 @@ name: Deploy
 #
 # Trigger: runs ONLY after the CI workflow finishes successfully on `main`, so a
 # red build never reaches the server. The job then, with no manual steps:
-#   1. SSHes into the VPS,
-#   2. pulls the latest `main` and rebuilds the Docker stack (app + db + Caddy,
-#      plus ClamAV via the antivirus profile),
-#   3. serves the app on the configured domain with automatic HTTPS (Caddy +
-#      Let's Encrypt), and
+#   1. renders the server's .env from GitHub Secrets + Variables (the single
+#      source of truth for runtime config),
+#   2. SSHes into the VPS, pulls latest `main`, and rebuilds the Docker stack
+#      (app + db + Caddy, plus ClamAV via the antivirus profile),
+#   3. serves the app on the configured domain with automatic HTTPS, and
 #   4. verifies the app reports healthy before declaring success.
 # All persistent state lives on named volumes, so redeploys never touch
 # accounts, files, shares or backups.
 #
-# Required repository secrets (Settings -> Secrets and variables -> Actions):
-#   DEPLOY_HOST     - VPS IPv4 address (GitHub runners have no IPv6 route)
-#   DEPLOY_USER     - the deploy user on the VPS (e.g. deploy)
-#   DEPLOY_SSH_KEY  - the PRIVATE key whose public half is in the deploy
-#                     user's ~/.ssh/authorized_keys on the VPS
+# ---- Configuration lives entirely in GitHub (Settings -> Secrets and
+#      variables -> Actions). No manual editing of files on the server. ----
 #
-# Optional repository variables (override the defaults below without editing
-# this file): DRIVE_SITE_ADDRESS, DRIVE_CORS_ALLOW_ORIGINS.
+# Required SECRETS (sensitive; keep STABLE — changing them logs everyone out /
+# breaks the existing database):
+#   DEPLOY_HOST        - VPS IPv4 address (GitHub runners have no IPv6 route)
+#   DEPLOY_USER        - the deploy user on the VPS (e.g. deploy)
+#   DEPLOY_SSH_KEY     - PRIVATE key whose public half is in the deploy user's
+#                        ~/.ssh/authorized_keys on the VPS
+#   DRIVE_SECRET_KEY   - signs login tokens and download URLs
+#   DRIVE_PG_PASSWORD  - PostgreSQL password (must match the existing db volume)
+#
+# Optional VARIABLES (non-sensitive; edit in the UI to reconfigure, then re-run
+# this workflow). Defaults are used when a variable is unset:
+#   DRIVE_SITE_ADDRESS            (default: apex + www)
+#   DRIVE_CORS_ALLOW_ORIGINS      (default: https apex + www)
+#   DRIVE_CLAMAV_ENABLED          (default: true)
+#   DRIVE_USER_QUOTA_BYTES        (default: 0 = unlimited)
+#   DRIVE_BACKUP_INTERVAL_HOURS   (default: 24)
+#   DRIVE_BACKUP_RETENTION        (default: 10)
 #
 # See docs/DEPLOYMENT_CONTABO.md for the one-time server setup.
 
@@ -46,40 +58,67 @@ jobs:
           DEPLOY_HOST: ${{ secrets.DEPLOY_HOST }}
           DEPLOY_USER: ${{ secrets.DEPLOY_USER }}
           DEPLOY_SSH_KEY: ${{ secrets.DEPLOY_SSH_KEY }}
-          # Public address(es) Caddy serves. Bare domains trigger automatic
-          # HTTPS; space-separated to serve both apex and www. Override via repo
-          # variables. CORS origins are comma-separated (parsed by the app).
-          SITE_ADDRESS: ${{ vars.DRIVE_SITE_ADDRESS || 'personal-drive-io.com www.personal-drive-io.com' }}
-          CORS_ORIGINS: ${{ vars.DRIVE_CORS_ALLOW_ORIGINS || 'https://personal-drive-io.com,https://www.personal-drive-io.com' }}
+          # --- Runtime config rendered into the server .env ---
+          # Secrets (sensitive, must stay stable):
+          DRIVE_SECRET_KEY: ${{ secrets.DRIVE_SECRET_KEY }}
+          DRIVE_PG_PASSWORD: ${{ secrets.DRIVE_PG_PASSWORD }}
+          # Variables (non-sensitive; defaults applied when unset):
+          DRIVE_SITE_ADDRESS: ${{ vars.DRIVE_SITE_ADDRESS || 'personal-drive-io.com www.personal-drive-io.com' }}
+          DRIVE_CORS_ALLOW_ORIGINS: ${{ vars.DRIVE_CORS_ALLOW_ORIGINS || 'https://personal-drive-io.com,https://www.personal-drive-io.com' }}
+          DRIVE_CLAMAV_ENABLED: ${{ vars.DRIVE_CLAMAV_ENABLED || 'true' }}
+          DRIVE_USER_QUOTA_BYTES: ${{ vars.DRIVE_USER_QUOTA_BYTES || '0' }}
+          DRIVE_BACKUP_INTERVAL_HOURS: ${{ vars.DRIVE_BACKUP_INTERVAL_HOURS || '24' }}
+          DRIVE_BACKUP_RETENTION: ${{ vars.DRIVE_BACKUP_RETENTION || '10' }}
         run: |
           set -euo pipefail
+
+          # Guard: never clobber a working .env if the stable secrets are missing.
+          if [ -z "${DRIVE_SECRET_KEY}" ] || [ -z "${DRIVE_PG_PASSWORD}" ]; then
+            echo "::error::Set DRIVE_SECRET_KEY and DRIVE_PG_PASSWORD as repository secrets (copy the current values from the server's .env)."
+            exit 1
+          fi
+
           mkdir -p ~/.ssh
           printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
           chmod 600 ~/.ssh/deploy_key
           # Trust the host on first contact (TOFU). For stronger security, pin the
           # VPS host key in a secret and write it to known_hosts instead.
           ssh-keyscan -H "$DEPLOY_HOST" >> ~/.ssh/known_hosts 2>/dev/null
-          # Pass the public-address config into the remote shell environment so
-          # docker compose picks it up for ${DRIVE_SITE_ADDRESS} interpolation.
-          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" \
-            "DRIVE_SITE_ADDRESS='${SITE_ADDRESS}' DRIVE_CORS_ALLOW_ORIGINS='${CORS_ORIGINS}' bash -s" <<'REMOTE'
+
+          # Render the .env from the values above (secrets are masked in logs).
+          # token_urlsafe secrets and these settings contain no quoting hazards.
+          umask 077
+          {
+            echo "DRIVE_SECRET_KEY=${DRIVE_SECRET_KEY}"
+            echo "DRIVE_PG_PASSWORD=${DRIVE_PG_PASSWORD}"
+            echo "DRIVE_SITE_ADDRESS=${DRIVE_SITE_ADDRESS}"
+            echo "DRIVE_CORS_ALLOW_ORIGINS=${DRIVE_CORS_ALLOW_ORIGINS}"
+            echo "DRIVE_CLAMAV_ENABLED=${DRIVE_CLAMAV_ENABLED}"
+            echo "DRIVE_USER_QUOTA_BYTES=${DRIVE_USER_QUOTA_BYTES}"
+            echo "DRIVE_BACKUP_INTERVAL_HOURS=${DRIVE_BACKUP_INTERVAL_HOURS}"
+            echo "DRIVE_BACKUP_RETENTION=${DRIVE_BACKUP_RETENTION}"
+          } > drive.env
+
+          # Ship the rendered env, then deploy.
+          scp -i ~/.ssh/deploy_key -o StrictHostKeyChecking=yes \
+            drive.env "$DEPLOY_USER@$DEPLOY_HOST:~/cloud-storage-system/.env.new"
+          rm -f drive.env
+
+          ssh -i ~/.ssh/deploy_key "$DEPLOY_USER@$DEPLOY_HOST" 'bash -s' <<'REMOTE'
             set -euo pipefail
             cd ~/cloud-storage-system
 
-            # 1. Sync to the exact state of origin/main.
+            # Atomically replace the env with the freshly-rendered one.
+            chmod 600 .env.new
+            mv .env.new .env
+
+            # Sync to the exact state of origin/main and (re)build the stack.
             git fetch origin main
             git reset --hard origin/main
-
-            # 2. Build and (re)start the whole stack. Caddy reads
-            #    DRIVE_SITE_ADDRESS from the environment exported above and
-            #    obtains/renews a Let's Encrypt cert automatically for a domain.
-            export DRIVE_SITE_ADDRESS DRIVE_CORS_ALLOW_ORIGINS
             docker compose --profile antivirus up -d --build
-
-            # 3. Reclaim disk from the previous image build (small box).
             docker image prune -f
 
-            # 4. Verify the app actually came up before we call this a success.
+            # Verify the app actually came up before calling this a success.
             ok=""
             for i in $(seq 1 30); do
               if curl -fsS http://127.0.0.1:8000/healthz >/dev/null 2>&1; then ok=1; break; fi
@@ -92,6 +131,6 @@ jobs:
               exit 1
             fi
 
-            echo "Deploy OK — app healthy. Public address: ${DRIVE_SITE_ADDRESS}"
+            echo "Deploy OK — app healthy."
             docker compose ps
           REMOTE
