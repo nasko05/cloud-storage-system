@@ -121,7 +121,13 @@ def register_options(
         {"ch": bytes_to_base64url(options.challenge), "uid": user.id, "typ": "reg"},
         expires_in=_CHALLENGE_TTL,
     )
-    return {"options": _options_json(options), "challengeToken": challenge_token}
+    options_json = _options_json(options)
+    # Enable the WebAuthn PRF (hmac-secret) extension so this credential can later
+    # derive a stable per-credential secret. The drive never evaluates PRF itself;
+    # the co-hosted space-io editor uses the PRF output to derive its
+    # note-encryption key. A drive running on its own simply ignores it.
+    options_json.setdefault("extensions", {})["prf"] = {}
+    return {"options": options_json, "challengeToken": challenge_token}
 
 
 @router.post("/register/verify", status_code=201)
