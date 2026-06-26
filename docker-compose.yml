@@ -67,6 +67,10 @@ services:
     environment:
       # ":80" = plain HTTP on the server IP. Set to a domain for auto-HTTPS.
       DRIVE_SITE_ADDRESS: ${DRIVE_SITE_ADDRESS:-:80}
+      # Co-hosted sibling app routed by Caddy over the shared `web` network.
+      # Defaults keep the block inert (no domain, no cert) until configured.
+      HEARTH_SITE_ADDRESS: ${HEARTH_SITE_ADDRESS:-:8081}
+      HEARTH_UPSTREAM: ${HEARTH_UPSTREAM:-127.0.0.1:9}
     ports:
       - "80:80"
       - "443:443"
@@ -78,6 +82,11 @@ services:
     dns:
       - 1.1.1.1
       - 8.8.8.8
+    # Join the shared `web` network so Caddy can reach co-hosted apps' containers
+    # by name, in addition to this project's default network (for `app`).
+    networks:
+      - default
+      - web
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
       - caddy_data:/data
@@ -99,6 +108,14 @@ services:
       timeout: 10s
       retries: 5
       start_period: 120s
+
+networks:
+  # Project-local network (app, db, clamav).
+  default:
+  # Shared cross-app network for the reverse proxy to reach co-hosted apps.
+  # Create it once on the host/CI: `docker network create web`.
+  web:
+    external: true
 
 volumes:
   db_data:

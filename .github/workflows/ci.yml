@@ -102,6 +102,8 @@ jobs:
       - name: Compose up + health smoke
         run: |
           echo "DRIVE_SECRET_KEY=ci-secret" > .env
+          # The compose file references an external `web` network (shared proxy).
+          docker network create web 2>/dev/null || true
           docker compose up -d
           ok=""
           for i in $(seq 1 40); do

@@ -373,3 +373,33 @@ Find and disable it, then redeploy:
 sudo ss -tlnp 'sport = :80'
 sudo systemctl disable --now caddy   # or nginx / apache2
 ```
+
+## 12. Co-hosting another app behind this proxy
+
+This Caddy can front additional apps on the same VPS (two HTTPS domains can't each
+own ports 80/443, so they share one proxy). Caddy joins a shared external Docker
+network named `web` and routes each domain to the right container.
+
+One-time, on the host:
+
+```bash
+docker network create web        # idempotent; the deploy also ensures this
+```
+
+Then, for each co-hosted app:
+
+1. In the sibling app's `docker-compose.yml`, attach its app container to the
+   external `web` network and give it a stable name/alias (e.g. `hearth-app`).
+   It must **not** publish ports 80/443.
+2. Add two repository **Variables** here (Settings → Secrets and variables →
+   Actions → Variables) and re-run this app's Deploy once:
+
+   | Variable | Example |
+   |---|---|
+   | `HEARTH_SITE_ADDRESS` | `hearth.example.com` |
+   | `HEARTH_UPSTREAM` | `hearth-app:8000` |
+
+Caddy then serves the sibling domain over HTTPS (auto Let's Encrypt) and proxies
+to its container. Until both Variables are set they default to an inert internal
+listener, so CI and a Hearth-less deploy are unaffected. The sibling's domain
+needs its own DNS A record at the VPS.

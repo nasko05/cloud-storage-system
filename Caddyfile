@@ -11,3 +11,13 @@
 {$DRIVE_SITE_ADDRESS::80} {
 	reverse_proxy app:8000
 }
+
+# Co-hosted sibling app (Hearth), reached over the shared external `web` network.
+# Inert by default: HEARTH_SITE_ADDRESS defaults to an unused internal port
+# (:8081, plain HTTP, no cert attempted) so CI and a Hearth-less deploy are
+# unaffected. Set HEARTH_SITE_ADDRESS (its domain) and HEARTH_UPSTREAM
+# (its container:port on `web`) as repo Variables to start serving it over HTTPS.
+{$HEARTH_SITE_ADDRESS::8081} {
+	reverse_proxy {$HEARTH_UPSTREAM:127.0.0.1:9}
+}
+

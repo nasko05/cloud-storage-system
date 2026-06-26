@@ -69,6 +69,10 @@ jobs:
           DRIVE_USER_QUOTA_BYTES: ${{ vars.DRIVE_USER_QUOTA_BYTES || '0' }}
           DRIVE_BACKUP_INTERVAL_HOURS: ${{ vars.DRIVE_BACKUP_INTERVAL_HOURS || '24' }}
           DRIVE_BACKUP_RETENTION: ${{ vars.DRIVE_BACKUP_RETENTION || '10' }}
+          # Co-hosted sibling app routed by this Caddy over the shared `web`
+          # network. Leave both unset to keep the Hearth site block inert.
+          HEARTH_SITE_ADDRESS: ${{ vars.HEARTH_SITE_ADDRESS || '' }}
+          HEARTH_UPSTREAM: ${{ vars.HEARTH_UPSTREAM || '' }}
         run: |
           set -euo pipefail
 
@@ -97,6 +101,8 @@ jobs:
             echo "DRIVE_USER_QUOTA_BYTES=${DRIVE_USER_QUOTA_BYTES}"
             echo "DRIVE_BACKUP_INTERVAL_HOURS=${DRIVE_BACKUP_INTERVAL_HOURS}"
             echo "DRIVE_BACKUP_RETENTION=${DRIVE_BACKUP_RETENTION}"
+            echo "HEARTH_SITE_ADDRESS=${HEARTH_SITE_ADDRESS}"
+            echo "HEARTH_UPSTREAM=${HEARTH_UPSTREAM}"
           } > drive.env
 
           # Ship the rendered env, then deploy.
@@ -115,6 +121,8 @@ jobs:
             # Sync to the exact state of origin/main and (re)build the stack.
             git fetch origin main
             git reset --hard origin/main
+            # Shared cross-app proxy network (idempotent; safe if it exists).
+            docker network create web 2>/dev/null || true
             docker compose --profile antivirus up -d --build
             docker image prune -f
 
