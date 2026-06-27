@@ -26,7 +26,12 @@ services:
       retries: 5
 
   app:
-    build: .
+    build:
+      context: .
+      args:
+        # Baked into the frontend bundle at build time (see Dockerfile). Empty
+        # hides the "My Space" link; set it to pair with the space-io editor.
+        VITE_PERSONAL_AREA_URL: ${VITE_PERSONAL_AREA_URL:-}
     restart: unless-stopped
     depends_on:
       db:
@@ -36,6 +41,17 @@ services:
       DRIVE_SECRET_KEY: ${DRIVE_SECRET_KEY:?Set DRIVE_SECRET_KEY in a .env file}
       DRIVE_STORAGE_DIR: /data/blobs
       DRIVE_BACKUP_DIR: /data/backups
+      # --- space-io editor plug-in (all optional; unset = standalone drive). ---
+      # Share the session JWT across subdomains so the editor is signed in too;
+      # set the domain to the registrable parent with a leading dot.
+      DRIVE_SSO_COOKIE_DOMAIN: ${DRIVE_SSO_COOKIE_DOMAIN:-}
+      DRIVE_SSO_COOKIE_NAME: ${DRIVE_SSO_COOKIE_NAME:-drive_sso}
+      DRIVE_SSO_COOKIE_SECURE: ${DRIVE_SSO_COOKIE_SECURE:-true}
+      DRIVE_SSO_COOKIE_SAMESITE: ${DRIVE_SSO_COOKIE_SAMESITE:-lax}
+      # Pin the passkey RP to the shared parent domain (== editor's
+      # VITE_WEBAUTHN_RP_ID) and allow both app origins.
+      DRIVE_WEBAUTHN_RP_ID: ${DRIVE_WEBAUTHN_RP_ID:-}
+      DRIVE_WEBAUTHN_ORIGIN: ${DRIVE_WEBAUTHN_ORIGIN:-}
       # Trust Caddy's X-Forwarded-Proto/Host so the app builds https:// signed
       # blob URLs (request.base_url). Without this, uploads/downloads use http://
       # and the browser blocks them as mixed content on an HTTPS page. Safe to
