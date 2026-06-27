@@ -11,7 +11,12 @@ WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY frontend/ ./
-RUN npm run build
+# Build-time UI config, baked into the bundle (frontend/.env is dockerignored,
+# so it's passed as a build arg from docker-compose instead). Optional: empty
+# hides the "My Space" link (standalone drive); in plug-in mode set it to the
+# space-io editor's URL, e.g. https://personal-area.example.com.
+ARG VITE_PERSONAL_AREA_URL=""
+RUN VITE_PERSONAL_AREA_URL="$VITE_PERSONAL_AREA_URL" npm run build
 
 # ---- Stage 2: runtime ----
 FROM python:3.11-slim-bookworm AS runtime
