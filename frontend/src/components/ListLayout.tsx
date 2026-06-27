@@ -13,6 +13,8 @@ export interface ListLayoutProps {
   selectedItems?: Set<string>;
   /** When set, clicking a folder row opens that folder (navigates). */
   onFolderClick?: (folder: DriveFolder) => void;
+  /** Open a file's preview (double-click a file row). */
+  onFileOpen?: (file: DriveFile) => void;
   onContextMenu?: (
     e: React.MouseEvent,
     target: { type: 'file'; file: DriveFile } | { type: 'folder'; folder: DriveFolder }
@@ -26,6 +28,7 @@ export function ListLayout({
   loading = false,
   selectedItems,
   onFolderClick,
+  onFileOpen,
   onContextMenu,
   onSelectionChange
 }: ListLayoutProps): React.ReactElement {
@@ -38,6 +41,22 @@ export function ListLayout({
       }
     },
     [onFolderClick]
+  );
+
+  const handleRowDoubleClick = React.useCallback(
+    (e: React.MouseEvent) => {
+      // DataGrid has no onRowDoubleClick, so resolve the row from the DOM the
+      // same way the context-menu handler does.
+      const target = e.target as HTMLElement;
+      const rowEl = target.closest('[data-id]');
+      const rowId = rowEl?.getAttribute('data-id');
+      if (!rowId) return;
+      const row = rows.find((r) => r.id === rowId);
+      if (row?.type === 'file') {
+        onFileOpen?.(row.file);
+      }
+    },
+    [rows, onFileOpen]
   );
 
   const handleRowContextMenu = React.useCallback(
@@ -68,7 +87,11 @@ export function ListLayout({
     : [];
 
   return (
-    <Box sx={{ width: '100%', height: '100%', minHeight: 280 }} onContextMenu={handleRowContextMenu}>
+    <Box
+      sx={{ width: '100%', height: '100%', minHeight: 280 }}
+      onContextMenu={handleRowContextMenu}
+      onDoubleClick={handleRowDoubleClick}
+    >
       <DataGrid
         rows={rows}
         columns={columns}

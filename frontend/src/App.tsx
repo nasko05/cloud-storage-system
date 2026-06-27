@@ -69,6 +69,7 @@ import { FileColumnsFactory, ListColumnsFactory } from './components/FileColumns
 import { GridLayout, type GridSize } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
 import { ContextMenu } from './components/ContextMenu';
+import { PreviewModal } from './components/Preview/PreviewModal';
 import { RenameDialog } from './components/RenameDialog';
 import { MoveDialog } from './components/MoveDialog';
 import { ShareDialog } from './components/ShareDialog';
@@ -163,6 +164,9 @@ function App(): JSX.Element {
   // --- Share dialog state ---
   const [shareTarget, setShareTarget] = useState<ShareTarget>(null);
   const [shareSuccess, setShareSuccess] = useState('');
+
+  // --- Preview modal state ---
+  const [previewFile, setPreviewFile] = useState<DriveFile | null>(null);
 
   // --- Shared with me state ---
   const [driveTab, setDriveTab] = useState<DriveTab>('my-drive');
@@ -385,6 +389,12 @@ function App(): JSX.Element {
   const handleCtxClose = (): void => {
     setCtxTarget(null);
     setCtxPosition(null);
+  };
+
+  const handleCtxPreview = (): void => {
+    if (ctxTarget?.type === 'file') {
+      setPreviewFile(ctxTarget.file);
+    }
   };
 
   const handleCtxRename = (): void => {
@@ -1070,6 +1080,7 @@ function App(): JSX.Element {
                       onDeleteFolder={handleDeleteFolder}
                       onContextMenu={handleContextMenu}
                       onSelectionChange={handleGridSelectionChange}
+                      onFilePreview={setPreviewFile}
                       onDrop={handleDrop}
                       onExternalDropUpload={(folder, dataTransfer) => {
                         void uploadFromDataTransfer(dataTransfer, folder.path);
@@ -1084,6 +1095,7 @@ function App(): JSX.Element {
                       loading={loading}
                       selectedItems={selectedItems}
                       onFolderClick={(folder) => handleFolderSelection(folder.path)}
+                      onFileOpen={setPreviewFile}
                       onContextMenu={handleContextMenu}
                       onSelectionChange={handleListSelectionChange}
                     />
@@ -1219,6 +1231,7 @@ function App(): JSX.Element {
                 : 'Download'
             }
             onClose={handleCtxClose}
+            onPreview={handleCtxPreview}
             onRename={handleCtxRename}
             onMoveTo={handleCtxMoveTo}
             onDownload={handleCtxDownload}
@@ -1247,6 +1260,13 @@ function App(): JSX.Element {
             onClose={() => setShareTarget(null)}
             onSubmit={handleShareSubmit}
             onShareChanged={handleShareChanged}
+          />
+
+          <PreviewModal
+            file={previewFile}
+            onClose={() => setPreviewFile(null)}
+            getDownloadUrl={getFileDownloadUrl}
+            onDownload={handleDownload}
           />
 
           <Snackbar

@@ -16,6 +16,8 @@
     "@mui/material": "^5.16.14",
     "@mui/x-data-grid": "^6.20.4",
     "@simplewebauthn/browser": "^13.3.0",
+    "mammoth": "^1.12.0",
+    "pdfjs-dist": "^5.7.284",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },

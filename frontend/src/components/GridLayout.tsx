@@ -46,6 +46,8 @@ export interface GridLayoutProps {
     target: { type: 'file'; file: DriveFile } | { type: 'folder'; folder: DriveFolder }
   ) => void;
   onSelectionChange?: (id: string, multi: boolean) => void;
+  /** Open a file's preview (double-click). */
+  onFilePreview?: (file: DriveFile) => void;
   onDrop?: (
     targetFolder: DriveFolder,
     dragData: { type: 'file' | 'folder'; id: string }
@@ -69,6 +71,7 @@ export function GridLayout({
   onDeleteFolder,
   onContextMenu,
   onSelectionChange,
+  onFilePreview,
   onDrop,
   onExternalDropUpload,
   getDownloadUrl,
@@ -318,6 +321,7 @@ export function GridLayout({
             />
           )}
           <CardActionArea
+            onDoubleClick={() => onFilePreview?.(file)}
             sx={{
               flex: 1,
               display: 'flex',
