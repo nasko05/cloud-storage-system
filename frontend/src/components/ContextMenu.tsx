@@ -11,7 +11,9 @@ import DriveFileMoveRoundedIcon from '@mui/icons-material/DriveFileMoveRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import ShareRoundedIcon from '@mui/icons-material/ShareRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
+import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import type { ContextMenuTarget, ContextMenuPosition } from '../types/drive';
+import { previewKind } from '../service/fileUtils';
 
 export type { ContextMenuTarget, ContextMenuPosition } from '../types/drive';
 
@@ -25,6 +27,7 @@ export interface ContextMenuProps {
   /** Label for Download item: "Download" or "Download as ZIP (N items)". */
   downloadLabel?: string;
   onClose: () => void;
+  onPreview: () => void;
   onRename: () => void;
   onMoveTo: () => void;
   onDownload: () => void;
@@ -39,6 +42,7 @@ export function ContextMenu({
   showDownload = false,
   downloadLabel = 'Download',
   onClose,
+  onPreview,
   onRename,
   onMoveTo,
   onDownload,
@@ -48,6 +52,9 @@ export function ContextMenu({
   const open = target !== null && position !== null;
   const isBulk = selectedCount > 1;
   const isFile = target?.type === 'file';
+  // Only offer "Preview" for a single file the in-app viewer can actually open.
+  const isPreviewable =
+    !isBulk && target?.type === 'file' && previewKind(target.file.filename) !== null;
 
   return (
     <Menu
@@ -61,6 +68,19 @@ export function ContextMenu({
         }
       }}
     >
+      {isPreviewable && (
+        <MenuItem
+          onClick={() => {
+            onClose();
+            onPreview();
+          }}
+        >
+          <ListItemIcon>
+            <VisibilityRoundedIcon fontSize="small" />
+          </ListItemIcon>
+          <ListItemText>Preview</ListItemText>
+        </MenuItem>
+      )}
       {!isBulk && (
         <MenuItem
           onClick={() => {
