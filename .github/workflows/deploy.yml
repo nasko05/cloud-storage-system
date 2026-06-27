@@ -69,6 +69,14 @@ jobs:
           DRIVE_USER_QUOTA_BYTES: ${{ vars.DRIVE_USER_QUOTA_BYTES || '0' }}
           DRIVE_BACKUP_INTERVAL_HOURS: ${{ vars.DRIVE_BACKUP_INTERVAL_HOURS || '24' }}
           DRIVE_BACKUP_RETENTION: ${{ vars.DRIVE_BACKUP_RETENTION || '10' }}
+          # --- space-io editor plug-in (defaults wire it to the production
+          #     domain; override via repository Variables, or blank them out for a
+          #     standalone drive). VITE_PERSONAL_AREA_URL is baked into the bundle
+          #     at build time via compose build.args. ---
+          VITE_PERSONAL_AREA_URL: ${{ vars.VITE_PERSONAL_AREA_URL || 'https://personal-area.personal-drive-io.com' }}
+          DRIVE_SSO_COOKIE_DOMAIN: ${{ vars.DRIVE_SSO_COOKIE_DOMAIN || '.personal-drive-io.com' }}
+          DRIVE_WEBAUTHN_RP_ID: ${{ vars.DRIVE_WEBAUTHN_RP_ID || 'personal-drive-io.com' }}
+          DRIVE_WEBAUTHN_ORIGIN: ${{ vars.DRIVE_WEBAUTHN_ORIGIN || 'https://personal-drive-io.com,https://www.personal-drive-io.com,https://personal-area.personal-drive-io.com' }}
         run: |
           set -euo pipefail
 
@@ -97,6 +105,10 @@ jobs:
             echo "DRIVE_USER_QUOTA_BYTES=${DRIVE_USER_QUOTA_BYTES}"
             echo "DRIVE_BACKUP_INTERVAL_HOURS=${DRIVE_BACKUP_INTERVAL_HOURS}"
             echo "DRIVE_BACKUP_RETENTION=${DRIVE_BACKUP_RETENTION}"
+            echo "VITE_PERSONAL_AREA_URL=${VITE_PERSONAL_AREA_URL}"
+            echo "DRIVE_SSO_COOKIE_DOMAIN=${DRIVE_SSO_COOKIE_DOMAIN}"
+            echo "DRIVE_WEBAUTHN_RP_ID=${DRIVE_WEBAUTHN_RP_ID}"
+            echo "DRIVE_WEBAUTHN_ORIGIN=${DRIVE_WEBAUTHN_ORIGIN}"
           } > drive.env
 
           # Ship the rendered env, then deploy.
