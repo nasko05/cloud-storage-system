@@ -26,6 +26,10 @@ from .extract import MAX_READ_BYTES, extract_text
 MAX_TREE_NODES = 2000
 MAX_TREE_CHARS = 40_000
 SEARCH_LIMIT = 50
+# list_tree shows a shallow overview by default and lets the model drill into a
+# specific folder, so a big drive is never dumped into the context at once.
+DEFAULT_TREE_DEPTH = 2
+MAX_TREE_DEPTH = 10
 
 # Tools that change the drive. The loop refuses to execute these and routes them
 # to the user for approval instead.
@@ -54,9 +58,24 @@ def tool_definitions() -> list[dict[str, Any]]:
     return [
         fn(
             "list_tree",
-            "List the whole drive as a tree of folders and files with their ids, paths, types, and sizes. "
-            "Call this first to see what exists before proposing any change.",
-            {"type": "object", "properties": {}, "additionalProperties": False},
+            "List folders and files as a tree, with their ids, types, and sizes. By default it shows the drive "
+            "root a couple of levels deep; folders that aren't expanded show an item count and how to expand "
+            "them. Pass `path` to drill into one folder and `depth` for how many levels to show — fetch only "
+            "what you need rather than listing the whole drive at once.",
+            {
+                "type": "object",
+                "properties": {
+                    "path": {
+                        "type": "string",
+                        "description": 'Folder to list, e.g. "/Documents". Defaults to the root "/".',
+                    },
+                    "depth": {
+                        "type": "integer",
+                        "description": "How many levels deep to show (1-10). Defaults to 2.",
+                    },
+                },
+                "additionalProperties": False,
+            },
         ),
         fn(
             "read_file",
@@ -124,7 +143,14 @@ def tool_definitions() -> list[dict[str, Any]]:
 
 def execute_readonly(db: Session, owner_id: str, name: str, args: dict[str, Any]) -> str:
     if name == "list_tree":
-        return _list_tree(db, owner_id)
+        path = args.get("path")
+        start_path = path if isinstance(path, str) and path.strip() else "/"
+        raw_depth = args.get("depth")
+        if isinstance(raw_depth, bool) or not isinstance(raw_depth, int | float):
+            depth = DEFAULT_TREE_DEPTH
+        else:
+            depth = max(1, min(MAX_TREE_DEPTH, int(raw_depth)))
+        return _list_tree(db, owner_id, start_path, depth)
     if name == "read_file":
         return _read_file(db, owner_id, args)
     if name == "search_files":
@@ -132,7 +158,17 @@ def execute_readonly(db: Session, owner_id: str, name: str, args: dict[str, Any]
     raise ApiError(400, f"unknown read-only tool: {name}")
 
 
-def _list_tree(db: Session, owner_id: str) -> str:
+def render_drive_tree(db: Session, owner_id: str) -> str:
+    """The full drive structure (folders + file names + ids, no contents), capped.
+    Fed to the model up front so it can pick which files it actually needs to read."""
+    return _list_tree(db, owner_id, "/", MAX_TREE_DEPTH)
+
+
+def _list_tree(db: Session, owner_id: str, start_path: str = "/", max_depth: int = DEFAULT_TREE_DEPTH) -> str:
+    start_id = _resolve_existing_folder_id(db, owner_id, start_path)
+    if start_id is None:
+        return f'Folder not found: "{start_path}". Call list_tree with no arguments to see the drive root.'
+
     folders = db.execute(select(Folder).where(Folder.owner_id == owner_id)).scalars().all()
     files = db.execute(select(File).where(File.owner_id == owner_id)).scalars().all()
 
@@ -159,26 +195,60 @@ def _list_tree(db: Session, owner_id: str) -> str:
         count += 1
         chars += len(line)
 
-    def walk(folder_id: str, path: str) -> None:
+    def walk(folder_id: str, path: str, depth: int) -> None:
         for folder in sorted(child_folders[folder_id], key=lambda f: f.name.lower()):
             if truncated:
                 return
             child_path = f"{path}/{folder.name}"
-            emit(f"{child_path}/  [folder id={folder.id}]")
-            walk(folder.id, child_path)
+            items = len(child_folders[folder.id]) + len(child_files[folder.id])
+            # At the depth frontier, summarise a non-empty folder instead of
+            # expanding it — the model can drill in with a targeted list_tree.
+            if depth >= max_depth and items > 0:
+                emit(f'{child_path}/  [folder id={folder.id}, {items} items — list_tree path="{child_path}" to expand]')
+            else:
+                emit(f"{child_path}/  [folder id={folder.id}]")
+                walk(folder.id, child_path, depth + 1)
         for file in sorted(child_files[folder_id], key=lambda f: f.filename.lower()):
             if truncated:
                 return
             emit(f"{path}/{file.filename}  [file id={file.id} type={file.content_type} size={file.size}]")
 
-    walk(ROOT_FOLDER_ID, "")
+    base = "" if start_id == ROOT_FOLDER_ID else "/" + "/".join(_path_segments(start_path))
+    walk(start_id, base, 1)
 
     if not lines:
-        return "(the drive is empty)"
+        return "(the drive is empty)" if start_id == ROOT_FOLDER_ID else f'(folder "{start_path}" is empty)'
     out = "\n".join(lines)
     if truncated:
-        out += "\n…(tree truncated; ask about a specific folder)"
+        out += '\n…(tree truncated; narrow with list_tree path="/Folder" or a smaller depth)'
     return out
+
+
+def _path_segments(path: str | None) -> list[str]:
+    if not path:
+        return []
+    return [seg for seg in path.replace("\\", "/").split("/") if seg and seg != "."]
+
+
+def _resolve_existing_folder_id(db: Session, owner_id: str, path: str | None) -> str | None:
+    """Resolve a '/'-relative path to an owned folder id (ROOT for '/'); None if
+    any segment doesn't exist."""
+    segments = _path_segments(path)
+    if any(seg == ".." for seg in segments):
+        return None
+    current = ROOT_FOLDER_ID
+    for seg in segments:
+        folder = db.execute(
+            select(Folder).where(
+                Folder.owner_id == owner_id,
+                Folder.parent_folder_id == current,
+                func.lower(Folder.name) == seg.lower(),
+            )
+        ).scalars().first()
+        if folder is None:
+            return None
+        current = folder.id
+    return current
 
 
 def _read_file(db: Session, owner_id: str, args: dict[str, Any]) -> str:

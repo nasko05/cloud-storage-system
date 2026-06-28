@@ -12,8 +12,9 @@ from __future__ import annotations
 
 import io
 
-# Cap on how much extracted text we hand the model for one file.
-MAX_TEXT_OUTPUT = 24_000
+# Cap on how much extracted text we hand the model for one file. A preview is
+# plenty to classify a file; keeping it modest bounds context per read_file.
+MAX_TEXT_OUTPUT = 12_000
 # Never read more than this many bytes off disk for extraction.
 MAX_READ_BYTES = 5 * 1024 * 1024
 

@@ -87,6 +87,54 @@ def test_unknown_readonly_tool_is_bad_request(client):
         tools.execute_readonly(db, user_id, "frobnicate", {})
 
 
+def test_list_tree_default_depth_summarizes_deep_folders(client):
+    token, user_id, _ = register_and_login(client)
+    a = _folder(client, token, "A")
+    b = _folder(client, token, "B", parent=a)
+    _folder(client, token, "C", parent=b)  # /A/B/C — below the default depth of 2
+    with SessionLocal() as db:
+        out = tools.execute_readonly(db, user_id, "list_tree", {})
+    assert "/A/" in out
+    assert 'list_tree path="/A/B" to expand' in out  # frontier folder summarised
+    assert "/A/B/C" not in out  # not pulled into context
+
+
+def test_list_tree_path_scopes_to_subtree(client):
+    token, user_id, _ = register_and_login(client)
+    a = _folder(client, token, "A")
+    _folder(client, token, "Sub", parent=a)
+    _folder(client, token, "Other")  # at root — must not appear when scoped to /A
+    with SessionLocal() as db:
+        out = tools.execute_readonly(db, user_id, "list_tree", {"path": "/A"})
+    assert "/A/Sub/" in out
+    assert "/Other" not in out
+
+
+def test_list_tree_depth_expands_more(client):
+    token, user_id, _ = register_and_login(client)
+    a = _folder(client, token, "A")
+    b = _folder(client, token, "B", parent=a)
+    _folder(client, token, "C", parent=b)
+    with SessionLocal() as db:
+        out = tools.execute_readonly(db, user_id, "list_tree", {"depth": 5})
+    assert "/A/B/C/" in out
+
+
+def test_list_tree_path_not_found(client):
+    _, user_id, _ = register_and_login(client)
+    with SessionLocal() as db:
+        out = tools.execute_readonly(db, user_id, "list_tree", {"path": "/nope"})
+    assert "Folder not found" in out
+
+
+def test_list_tree_empty_subfolder(client):
+    token, user_id, _ = register_and_login(client)
+    _folder(client, token, "Empty")
+    with SessionLocal() as db:
+        out = tools.execute_readonly(db, user_id, "list_tree", {"path": "/Empty"})
+    assert "is empty" in out
+
+
 # --- read_file --------------------------------------------------------------
 
 def test_read_file_returns_text(client):
