@@ -67,6 +67,14 @@ services:
       DRIVE_CLAMAV_ENABLED: ${DRIVE_CLAMAV_ENABLED:-false}
       DRIVE_CLAMAV_HOST: clamav
       DRIVE_CLAMAV_PORT: "3310"
+      # --- AI reorganization assistant (all optional; unset key = disabled). ---
+      # Set an OpenRouter (OpenAI-compatible) key to enable the in-app assistant
+      # that proposes folder/file reorganizations you approve. Reading a file's
+      # contents sends its text to this provider, so the feature is opt-in.
+      DRIVE_OPENROUTER_API_KEY: ${DRIVE_OPENROUTER_API_KEY:-}
+      DRIVE_AGENT_MODEL: ${DRIVE_AGENT_MODEL:-qwen/qwen3.6-27b}
+      DRIVE_OPENROUTER_BASE_URL: ${DRIVE_OPENROUTER_BASE_URL:-https://openrouter.ai/api/v1}
+      DRIVE_AGENT_MAX_STEPS: ${DRIVE_AGENT_MAX_STEPS:-8}
     volumes:
       - blob_data:/data/blobs
       - backup_data:/data/backups

@@ -40,7 +40,8 @@ import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded';
 import { logout, getToken, registerPasskey, passkeySupported } from './auth';
 import { config } from './config';
-import { createFolder } from './api';
+import { createFolder, agentStatus } from './api';
+import { Assistant } from './components/Assistant';
 import {
   fetchFiles,
   fetchSharedWithMe,
@@ -138,6 +139,9 @@ function App(): JSX.Element {
 
   // --- Auth state ---
   const [token, setToken] = useState<string | null>(null);
+
+  // --- AI assistant availability (server is the source of truth) ---
+  const [assistantConfigured, setAssistantConfigured] = useState(false);
 
   // --- Drive state ---
   const [files, setFiles] = useState<DriveFile[]>([]);
@@ -276,6 +280,24 @@ function App(): JSX.Element {
     if (!token) return;
     void loadFiles();
   }, [token, currentPath]);
+
+  useEffect(() => {
+    if (!token) {
+      setAssistantConfigured(false);
+      return;
+    }
+    let active = true;
+    void agentStatus()
+      .then((status) => {
+        if (active) setAssistantConfigured(status.configured);
+      })
+      .catch(() => {
+        if (active) setAssistantConfigured(false);
+      });
+    return (): void => {
+      active = false;
+    };
+  }, [token]);
 
   useEffect(() => {
     if (!token || driveTab !== 'shared-with-me') return;
@@ -1284,6 +1306,8 @@ function App(): JSX.Element {
               {shareSuccess}
             </Alert>
           </Snackbar>
+
+          {assistantConfigured && <Assistant onApplied={() => loadFiles()} />}
       </Box>
       <UploadDropOverlay visible={driveTab === 'my-drive' && isUploadDragActive} />
     </>

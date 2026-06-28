@@ -83,6 +83,17 @@ class Settings(BaseSettings):
     max_archive_total_bytes: int = 2 * 1024 * 1024 * 1024  # 2 GiB
     max_filename_length: int = 255
 
+    # AI reorganizer assistant (optional). The assistant is a server-side
+    # tool-using agent over an OpenRouter (OpenAI-compatible) chat model that
+    # PROPOSES folder/file reorganizations the user approves before they apply.
+    # Leave the key empty to disable it entirely (the UI hides the assistant and
+    # POST /v2/agent/chat returns 400). Reading a file's contents sends its text
+    # to the configured model provider, so the feature is strictly opt-in.
+    openrouter_api_key: str = ""
+    agent_model: str = "qwen/qwen3.6-27b"
+    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    agent_max_steps: int = 8
+
     # Behaviour
     require_email_confirmation: bool = False
     # NoDecode stops pydantic-settings from JSON-decoding the env value so a
