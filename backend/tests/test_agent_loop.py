@@ -1,8 +1,10 @@
 """The tool-calling loop: read-only inline, mutating as proposals, error paths."""
 
+import json
+
 import httpx
 import pytest
-from conftest import register_and_login
+from conftest import register_and_login, upload_file
 
 from app.agent.client import OpenRouterClient
 from app.agent.config import AgentConfig
@@ -95,6 +97,27 @@ def test_invalid_mutating_args_fed_back_to_model(client):
     assert turn["pending_actions"] == []
     tool_msgs = [m for m in turn["messages"] if m.get("role") == "tool"]
     assert tool_msgs and "error" in tool_msgs[0]["content"].lower()
+
+
+def test_drive_structure_is_sent_to_the_model_up_front(client):
+    token, user_id, _ = register_and_login(client)
+    upload_file(client, token, "taxes-2026.pdf")
+
+    captured: dict = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        captured["body"] = json.loads(request.content)
+        return httpx.Response(200, json=_assistant(content="ok"))
+
+    cfg = AgentConfig(api_key="sk-test", model="m", base_url="https://x/api/v1", max_steps=8)
+    chat = OpenRouterClient(cfg, http=httpx.Client(transport=httpx.MockTransport(handler)))
+    with SessionLocal() as db:
+        run_turn(chat, db, user_id, [_user("organize my files")], max_steps=8)
+
+    system = captured["body"]["messages"][0]
+    assert system["role"] == "system"
+    assert "Current drive structure" in system["content"]
+    assert "taxes-2026.pdf" in system["content"]  # the file map is sent without being asked
 
 
 def test_client_system_message_is_stripped(client):

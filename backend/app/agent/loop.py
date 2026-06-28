@@ -33,7 +33,10 @@ def run_turn(
     *,
     max_steps: int,
 ) -> dict[str, Any]:
-    messages = _with_system_prompt(incoming)
+    # Send the current drive structure up front so the model starts with the
+    # full map and only has to choose which files to read.
+    structure = tools.render_drive_tree(db, owner_id)
+    messages = _with_system_prompt(incoming, structure)
     catalogue = tools.tool_definitions()
 
     assistant_text: str | None = None
@@ -99,8 +102,8 @@ def _tool_result(call: dict[str, Any], content: str) -> dict[str, Any]:
     }
 
 
-def _with_system_prompt(incoming: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    out: list[dict[str, Any]] = [{"role": "system", "content": _system_prompt(_today_utc())}]
+def _with_system_prompt(incoming: list[dict[str, Any]], structure: str) -> list[dict[str, Any]]:
+    out: list[dict[str, Any]] = [{"role": "system", "content": _system_prompt(_today_utc(), structure)}]
     # Drop any client-supplied system messages so the browser can't override the
     # server-owned instructions.
     out.extend(message for message in incoming if message.get("role") != "system")
@@ -111,25 +114,30 @@ def _today_utc() -> str:
     return f"{datetime.now(UTC):%A, %d %B %Y}"
 
 
-def _system_prompt(today: str) -> str:
+def _system_prompt(today: str, structure: str) -> str:
     return (
         "You are the file-organisation assistant built into a personal cloud drive. You help the user "
         "tidy and reorganise their files and folders.\n\n"
         "The drive is a tree of folders and files. Paths are relative to the drive root and use '/'. The "
-        "root is '/'. Every file and folder has a stable id shown by list_tree; always reference existing "
-        "items by their id.\n\n"
+        "root is '/'. Every file and folder has a stable id; always reference existing items by their id.\n\n"
         f"Today's date is {today} (UTC). Resolve relative references like \"today\" or \"this year\" against "
         "it; never infer the current date from a file's name or contents.\n\n"
-        "Read-only tools you may use freely: list_tree, read_file, search_files. Call list_tree first to see "
-        "what exists. Use read_file to understand a file's contents when that helps you group it.\n\n"
+        "The current drive structure is provided at the end of this message — review it first. It lists every "
+        "folder and file with its id, but NOT file contents. Decide from it which files you actually need to "
+        "open, then read only those with read_file (use it only when a file's name and type aren't enough to "
+        "place it). You don't need to call list_tree for the overview; use it only to expand a folder the "
+        "structure marked as truncated, and search_files to locate files by name. Pull in just what the task "
+        "needs.\n\n"
         "Tools that change the drive — create_folder, move_node, rename_node — are PROPOSED to the user and "
         "applied only after they approve. Emit all the steps of a reorganization as tool calls in a single "
         "turn so the user can review and approve the whole plan at once. Never claim a change is finished; "
         "after you propose, the system tells you whether it was applied or declined.\n\n"
         "Guidelines:\n"
-        "- Look at the real tree (and file contents when useful) before proposing moves.\n"
+        "- Base your plan on the structure below; read a file's contents only when you must to classify it.\n"
         "- To put files into a new folder, propose create_folder first, then move_node with that folder's "
         "path as the destination.\n"
         "- Use relative paths only — never absolute filesystem paths or '..'.\n"
-        "- Deleting files is not available; never promise to delete anything."
+        "- Deleting files is not available; never promise to delete anything.\n\n"
+        "Current drive structure (folders and files, each with its id — not file contents):\n"
+        f"{structure}"
     )
