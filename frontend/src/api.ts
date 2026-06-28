@@ -716,3 +716,48 @@ export const downloadPublicLink = async (token: string, password?: string): Prom
     'POST',
     password ? { password } : {}
   );
+
+// --- AI reorganization assistant -------------------------------------------
+
+export interface AgentMessage {
+  role: string;
+  content?: string | null;
+  tool_calls?: unknown;
+  tool_call_id?: string;
+  name?: string;
+}
+
+export interface AgentPendingAction {
+  tool_call_id: string;
+  tool: string;
+  args: Record<string, unknown>;
+  summary: string;
+}
+
+export interface AgentChatResponse {
+  messages: AgentMessage[];
+  assistant_text: string | null;
+  pending_actions: AgentPendingAction[];
+  done: boolean;
+}
+
+export interface AgentStatus {
+  configured: boolean;
+  model: string;
+}
+
+export type AgentOperation = { tool: string } & Record<string, unknown>;
+
+export const agentStatus = async (): Promise<AgentStatus> =>
+  DriveApiClient.authRequest<AgentStatus>('/v2/agent/status', 'GET');
+
+export const agentChat = async (messages: AgentMessage[]): Promise<AgentChatResponse> =>
+  DriveApiClient.authRequest<AgentChatResponse>('/v2/agent/chat', 'POST', { messages });
+
+export const agentApply = async (operations: AgentOperation[]): Promise<{ applied: number }> => {
+  const result = await DriveApiClient.authRequest<{ applied: number }>('/v2/agent/apply', 'POST', { operations });
+  // A reorganization can create/move/rename folders, so the path→id cache the
+  // listing helpers rely on may now be stale; drop it so the next load re-resolves.
+  resetFolderPathCache();
+  return result;
+};

@@ -9,3 +9,9 @@ psycopg2-binary==2.9.10
 alembic==1.14.0
 clamd==1.0.2
 webauthn==2.5.2
+# AI reorganization assistant: outbound calls to the model provider and text
+# extraction for the read_file tool. The feature is disabled unless a key is set,
+# but these are imported at startup so they belong in the runtime image.
+httpx==0.28.1
+pypdf==5.1.0
+python-docx==1.1.2

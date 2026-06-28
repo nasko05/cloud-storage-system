@@ -21,9 +21,7 @@ from .config import settings
 from .database import init_db
 from .errors import ApiError, api_error_handler, unhandled_error_handler
 from .routers import (
-    archive as archive_router,
-)
-from .routers import (
+    agent,
     auth,
     blobs,
     download,
@@ -33,6 +31,9 @@ from .routers import (
     public_links,
     shares,
     webauthn,
+)
+from .routers import (
+    archive as archive_router,
 )
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s %(message)s")
@@ -87,6 +88,7 @@ for router in (
     public_download.router,
     archive_router.router,
     blobs.router,
+    agent.router,
 ):
     app.include_router(router)
 

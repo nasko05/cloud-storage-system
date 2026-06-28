@@ -6,6 +6,8 @@ contract the existing React client depends on.
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import BaseModel, EmailStr, Field
 
 
@@ -85,3 +87,30 @@ class PublicDownloadRequest(BaseModel):
 class CreateArchiveRequest(BaseModel):
     fileIds: list[str] = Field(default_factory=list)
     folderIds: list[str] = Field(default_factory=list)
+
+
+class AgentChatRequest(BaseModel):
+    # The full conversation rides along each turn (the server is stateless
+    # between turns). Messages are OpenAI-shaped dicts: role/content plus
+    # optional tool_calls / tool_call_id / name.
+    messages: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class AgentOperation(BaseModel):
+    """One step of an approved reorganization plan. Only the fields relevant to
+    ``tool`` are set; the apply endpoint validates the combination."""
+
+    tool: str
+    # create_folder
+    parentPath: str | None = None
+    name: str | None = None
+    # move_node / rename_node
+    nodeType: str | None = None
+    id: str | None = None
+    path: str | None = None
+    destinationPath: str | None = None
+    newName: str | None = None
+
+
+class AgentApplyRequest(BaseModel):
+    operations: list[AgentOperation] = Field(default_factory=list)

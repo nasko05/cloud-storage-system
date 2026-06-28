@@ -44,6 +44,41 @@ migration: **[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md)**. For a provider-specific
 walkthrough with antivirus and an auto-deploy pipeline, see
 **[docs/DEPLOYMENT_CONTABO.md](docs/DEPLOYMENT_CONTABO.md)**.
 
+## AI assistant
+
+The drive ships an optional in-app **AI organizer** (the spark button,
+bottom-right). Describe how you'd like things tidied — "sort everything into
+folders by type", "group my 2026 tax documents" — and it proposes a plan of new
+folders, moves, and renames that you **approve before anything changes**.
+
+Two things are deliberate:
+
+- **You approve every change.** The assistant reads and searches on its own, but
+  any folder it creates, or file it moves or renames, is shown to you as a
+  proposal first. An approved plan is applied in one transaction through the same
+  validated operations the UI uses — so an invalid step rolls the whole plan back
+  and nothing is ever half-applied. Deleting is intentionally not available to
+  the assistant; it only creates folders, moves, and renames.
+- **Privacy.** To group files well the assistant can read their contents (text,
+  PDF, and Word documents). When it does, that text is sent to your configured
+  model provider (OpenRouter). If that trade-off isn't for you, leave the key
+  unset — the assistant stays hidden and nothing leaves the server.
+
+It runs as a server-side tool-using agent against an
+[OpenRouter](https://openrouter.ai)-compatible chat model. Enable it by setting a
+key and restarting:
+
+```bash
+DRIVE_OPENROUTER_API_KEY=sk-or-... docker compose up -d
+```
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `DRIVE_OPENROUTER_API_KEY` | _(unset → assistant off)_ | OpenRouter API key. |
+| `DRIVE_AGENT_MODEL` | `qwen/qwen3.6-27b` | Any tool-calling model id on OpenRouter. |
+| `DRIVE_OPENROUTER_BASE_URL` | `https://openrouter.ai/api/v1` | Point at any OpenAI-compatible endpoint. |
+| `DRIVE_AGENT_MAX_STEPS` | `8` | Max tool rounds the agent runs per message. |
+
 ## Local development
 
 Backend (SQLite, auto-reload):

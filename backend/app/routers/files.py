@@ -16,6 +16,7 @@ from ..models import File
 from ..schemas import CreateUploadRequest, PatchFileRequest
 from ..services import (
     folder_exists_for_owner,
+    move_or_rename_file_core,
     name_conflict,
     require_owned_file,
     user_storage_usage,
@@ -142,31 +143,20 @@ def patch_file(
         if payload.newName is None and payload.destinationFolderId is None:
             raise ApiError(400, "At least one of newName or destinationFolderId is required")
 
-        file = require_owned_file(db, user.id, file_id)
-
-        target_name = file.filename if payload.newName is None else payload.newName.strip()
-        if not is_valid_name(target_name):
-            raise ApiError(400, "Valid newName required")
-
-        target_parent = file.parent_folder_id
-        if payload.destinationFolderId is not None:
-            target_parent = normalize_folder_id(payload.destinationFolderId)
-        if not folder_exists_for_owner(db, user.id, target_parent):
-            raise ApiError(404, "Destination folder not found")
-        if name_conflict(db, user.id, target_parent, File, target_name, exclude_id=file_id):
-            raise ApiError(409, "A file with that name already exists in destination folder")
-
-        if target_name == file.filename and target_parent == file.parent_folder_id:
+        file, changed = move_or_rename_file_core(
+            db,
+            user.id,
+            file_id,
+            new_name=payload.newName,
+            dest_folder_id=payload.destinationFolderId,
+        )
+        if not changed:
             return 200, {"message": "No changes"}
-
-        file.filename = target_name
-        file.parent_folder_id = target_parent
-        db.flush()
         return 200, {
             "message": "File updated",
             "fileId": file.id,
-            "filename": target_name,
-            "parentFolderId": target_parent,
+            "filename": file.filename,
+            "parentFolderId": file.parent_folder_id,
         }
 
     status, body = run_idempotent(db, user.id, f"files-patch-{file_id}", idempotency_key, action)

@@ -17,14 +17,13 @@ from ..models import File, Folder
 from ..pagination import decode_cursor, encode_cursor, normalize_limit
 from ..schemas import CreateFolderRequest, PatchFolderRequest
 from ..services import (
+    create_folder_core,
     derive_file_flags,
     folder_exists_for_owner,
-    is_descendant_folder,
-    name_conflict,
+    move_or_rename_folder_core,
     require_owned_folder,
 )
 from ..utils import iso
-from ..validation import is_valid_name, normalize_folder_id
 
 router = APIRouter(prefix="/v2/folders", tags=["folders"])
 
@@ -122,19 +121,7 @@ def create_folder(
     idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
-        if not folder_exists_for_owner(db, user.id, folder_id):
-            raise ApiError(404, "Parent folder not found")
-
-        name = payload.name or payload.folderName
-        if not is_valid_name(name):
-            raise ApiError(400, "Valid folder name required")
-        assert name is not None  # narrowed by is_valid_name
-        if name_conflict(db, user.id, folder_id, Folder, name):
-            raise ApiError(409, "A folder with that name already exists in destination folder")
-
-        folder = Folder(owner_id=user.id, name=name, parent_folder_id=folder_id)
-        db.add(folder)
-        db.flush()
+        folder = create_folder_core(db, user.id, folder_id, payload.name or payload.folderName)
         return 201, {"folderId": folder.id, "name": folder.name, "parentFolderId": folder_id}
 
     status, body = run_idempotent(db, user.id, f"folders-create-{folder_id}", idempotency_key, action)
@@ -153,36 +140,20 @@ def patch_folder(
         if payload.newName is None and payload.destinationFolderId is None:
             raise ApiError(400, "At least one of newName or destinationFolderId is required")
 
-        folder = require_owned_folder(db, user.id, folder_id)
-
-        target_name = folder.name if payload.newName is None else payload.newName.strip()
-        if not is_valid_name(target_name):
-            raise ApiError(400, "Valid newName required")
-
-        target_parent = folder.parent_folder_id
-        if payload.destinationFolderId is not None:
-            target_parent = normalize_folder_id(payload.destinationFolderId)
-
-        if target_parent == folder_id:
-            raise ApiError(400, "Folder cannot be moved into itself")
-        if not folder_exists_for_owner(db, user.id, target_parent):
-            raise ApiError(404, "Destination folder not found")
-        if is_descendant_folder(db, user.id, target_parent, folder_id):
-            raise ApiError(400, "Cannot move folder into its own subfolder")
-        if name_conflict(db, user.id, target_parent, Folder, target_name, exclude_id=folder_id):
-            raise ApiError(409, "A folder with that name already exists in destination folder")
-
-        if target_name == folder.name and target_parent == folder.parent_folder_id:
+        folder, changed = move_or_rename_folder_core(
+            db,
+            user.id,
+            folder_id,
+            new_name=payload.newName,
+            dest_folder_id=payload.destinationFolderId,
+        )
+        if not changed:
             return 200, {"message": "No changes"}
-
-        folder.name = target_name
-        folder.parent_folder_id = target_parent
-        db.flush()
         return 200, {
             "message": "Folder updated",
             "folderId": folder.id,
-            "name": target_name,
-            "parentFolderId": target_parent,
+            "name": folder.name,
+            "parentFolderId": folder.parent_folder_id,
         }
 
     status, body = run_idempotent(db, user.id, f"folders-patch-{folder_id}", idempotency_key, action)
