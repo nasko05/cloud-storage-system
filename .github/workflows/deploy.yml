@@ -25,6 +25,9 @@ name: Deploy
 #   DRIVE_SECRET_KEY   - signs login tokens and download URLs
 #   DRIVE_PG_PASSWORD  - PostgreSQL password (must match the existing db volume)
 #
+# Optional SECRETS (sensitive; the feature is off when unset):
+#   DRIVE_OPENROUTER_API_KEY  - enables the in-app AI reorganization assistant
+#
 # Optional VARIABLES (non-sensitive; edit in the UI to reconfigure, then re-run
 # this workflow). Defaults are used when a variable is unset:
 #   DRIVE_SITE_ADDRESS            (default: apex + www)
@@ -33,6 +36,7 @@ name: Deploy
 #   DRIVE_USER_QUOTA_BYTES        (default: 0 = unlimited)
 #   DRIVE_BACKUP_INTERVAL_HOURS   (default: 24)
 #   DRIVE_BACKUP_RETENTION        (default: 10)
+#   DRIVE_AGENT_MODEL             (default: qwen/qwen3.6-27b)
 #
 # See docs/DEPLOYMENT_CONTABO.md for the one-time server setup.
 
@@ -62,6 +66,10 @@ jobs:
           # Secrets (sensitive, must stay stable):
           DRIVE_SECRET_KEY: ${{ secrets.DRIVE_SECRET_KEY }}
           DRIVE_PG_PASSWORD: ${{ secrets.DRIVE_PG_PASSWORD }}
+          # AI reorganization assistant (optional). The key is a secret; the
+          # assistant is hidden when it is unset. Model is an optional variable.
+          DRIVE_OPENROUTER_API_KEY: ${{ secrets.DRIVE_OPENROUTER_API_KEY }}
+          DRIVE_AGENT_MODEL: ${{ vars.DRIVE_AGENT_MODEL || 'qwen/qwen3.6-27b' }}
           # Variables (non-sensitive; defaults applied when unset):
           DRIVE_SITE_ADDRESS: ${{ vars.DRIVE_SITE_ADDRESS || 'personal-drive-io.com www.personal-drive-io.com' }}
           DRIVE_CORS_ALLOW_ORIGINS: ${{ vars.DRIVE_CORS_ALLOW_ORIGINS || 'https://personal-drive-io.com,https://www.personal-drive-io.com' }}
@@ -99,6 +107,8 @@ jobs:
           {
             echo "DRIVE_SECRET_KEY=${DRIVE_SECRET_KEY}"
             echo "DRIVE_PG_PASSWORD=${DRIVE_PG_PASSWORD}"
+            echo "DRIVE_OPENROUTER_API_KEY=${DRIVE_OPENROUTER_API_KEY}"
+            echo "DRIVE_AGENT_MODEL=${DRIVE_AGENT_MODEL}"
             echo "DRIVE_SITE_ADDRESS=${DRIVE_SITE_ADDRESS}"
             echo "DRIVE_CORS_ALLOW_ORIGINS=${DRIVE_CORS_ALLOW_ORIGINS}"
             echo "DRIVE_CLAMAV_ENABLED=${DRIVE_CLAMAV_ENABLED}"
