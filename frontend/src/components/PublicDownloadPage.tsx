@@ -18,6 +18,7 @@ import TimerOffRoundedIcon from '@mui/icons-material/TimerOffRounded';
 import type { PublicLinkInfo } from '../types/drive';
 import { formatFileSize } from '../types/drive';
 import { fetchPublicLinkInfo, getPublicDownloadUrl } from '../service/driveService';
+import { formatDate } from '../utils';
 
 interface PublicDownloadPageProps {
   token: string;
@@ -188,7 +189,7 @@ export function PublicDownloadPage({ token }: PublicDownloadPageProps): React.Re
               </Stack>
               {info.expiresAt && (
                 <Typography variant="body2" color="text.secondary">
-                  Expires: {new Date(info.expiresAt).toLocaleDateString()}
+                  Expires: {formatDate(info.expiresAt)}
                 </Typography>
               )}
             </Stack>

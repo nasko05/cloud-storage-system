@@ -1,5 +1,6 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFolder, uploadFile } from '../api';
+import { normalizePath } from '../service/paths';
 
 const MAX_PARALLEL_UPLOADS = 3;
 
@@ -87,13 +88,6 @@ function createClientId(prefix = 'id'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function normalizeDrivePath(path: string): string {
-  if (!path) return '/';
-  const normalized = path.replace(/\/+/g, '/').replace(/\/$/, '');
-  if (!normalized || normalized === '/') return '/';
-  return normalized.startsWith('/') ? normalized : `/${normalized}`;
-}
-
 function normalizeRelativePath(relativePath: string): string {
   return relativePath
     .replace(/\\/g, '/')
@@ -103,10 +97,10 @@ function normalizeRelativePath(relativePath: string): string {
 }
 
 function joinDrivePath(basePath: string, relativePath: string): string {
-  const base = normalizeDrivePath(basePath);
+  const base = normalizePath(basePath);
   const relative = normalizeRelativePath(relativePath);
   if (!relative) return base;
-  return normalizeDrivePath(base === '/' ? `/${relative}` : `${base}/${relative}`);
+  return normalizePath(base === '/' ? `/${relative}` : `${base}/${relative}`);
 }
 
 function dirname(relativePath: string): string {
@@ -269,7 +263,7 @@ export function useUploadManager({
 
   const ensureFolderPathExists = useCallback(
     async (targetPath: string, folderCache: Set<string>, signal: AbortSignal): Promise<void> => {
-      const normalizedTarget = normalizeDrivePath(targetPath);
+      const normalizedTarget = normalizePath(targetPath);
       if (normalizedTarget === '/' || folderCache.has(normalizedTarget)) return;
 
       const segments = normalizedTarget.split('/').filter(Boolean);
@@ -307,7 +301,7 @@ export function useUploadManager({
         return;
       }
 
-      const basePath = normalizeDrivePath(destinationPathOverride ?? currentPath);
+      const basePath = normalizePath(destinationPathOverride ?? currentPath);
       setError('');
       setUploadSummary('');
       setUploadItems(

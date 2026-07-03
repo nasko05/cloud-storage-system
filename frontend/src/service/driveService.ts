@@ -57,13 +57,31 @@ async function wrapApiCall<T extends { error?: string }>(
   fn: () => Promise<T>,
   fallbackMsg: string
 ): Promise<ApiCallResult> {
+  return wrapApiFetch(
+    fn,
+    (): ApiCallResult => ({ success: true }),
+    (error) => ({ success: false, error }),
+    fallbackMsg
+  );
+}
+
+/**
+ * Shared try/catch + error-field extraction for calls whose result carries
+ * data: `map` shapes the success value, `onError` the failure value.
+ */
+async function wrapApiFetch<T extends { error?: string }, R>(
+  fn: () => Promise<T>,
+  map: (data: T) => R,
+  onError: (message: string) => R,
+  fallbackMsg: string
+): Promise<R> {
   try {
-    const result = await fn();
-    if (result.error) return { success: false, error: result.error };
-    return { success: true };
+    const data = await fn();
+    if (data.error) return onError(data.error);
+    return map(data);
   } catch (err) {
     const message = err instanceof Error ? err.message : fallbackMsg;
-    return { success: false, error: message };
+    return onError(message);
   }
 }
 
@@ -89,27 +107,26 @@ export interface FetchFilesResult {
 }
 
 export async function fetchFiles(folder?: string): Promise<FetchFilesResult> {
-  try {
-    const data = await listFiles(folder);
-    const files = filesFromUnknown(data.files);
-    const folders = Array.isArray(data.folders)
-      ? data.folders.map(parseFolder).filter((f): f is DriveFolder => f !== null)
-      : [];
-    return { files, folders };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load files';
-    return { files: [], folders: [], error: message };
-  }
+  return wrapApiFetch(
+    () => listFiles(folder),
+    (data) => ({
+      files: filesFromUnknown(data.files),
+      folders: Array.isArray(data.folders)
+        ? data.folders.map(parseFolder).filter((f): f is DriveFolder => f !== null)
+        : [],
+    }),
+    (error) => ({ files: [], folders: [], error }),
+    'Failed to load files'
+  );
 }
 
 export async function getFileDownloadUrl(fileId: string): Promise<string | null> {
-  try {
-    const { downloadUrl, error } = await getDownloadUrl(fileId);
-    if (error || !downloadUrl) return null;
-    return downloadUrl;
-  } catch {
-    return null;
-  }
+  return wrapApiFetch(
+    () => getDownloadUrl(fileId),
+    (data) => data.downloadUrl ?? null,
+    () => null,
+    'Download failed'
+  );
 }
 
 export interface BulkDownloadZipResult {
@@ -121,15 +138,12 @@ export async function getBulkDownloadZipUrl(
   fileIds: string[],
   folderPaths: string[]
 ): Promise<BulkDownloadZipResult> {
-  try {
-    const result = await createDownloadZip(fileIds, folderPaths);
-    if (result.error) return { error: result.error };
-    if (!result.downloadUrl) return { error: 'No download URL returned' };
-    return { downloadUrl: result.downloadUrl };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to create ZIP';
-    return { error: message };
-  }
+  return wrapApiFetch(
+    () => createDownloadZip(fileIds, folderPaths),
+    (data) => (data.downloadUrl ? { downloadUrl: data.downloadUrl } : { error: 'No download URL returned' }),
+    (error) => ({ error }),
+    'Failed to create ZIP'
+  );
 }
 
 export interface DeleteFileResult {
@@ -168,21 +182,21 @@ export interface FetchSharedFilesResult {
 }
 
 export async function fetchSharedWithMe(): Promise<FetchSharedFilesResult> {
-  try {
-    const data = await listSharedWithMe();
-    const files: SharedFile[] = (data.files ?? []).map((f) => ({
-      fileId: f.fileId,
-      filename: f.filename,
-      sharedBy: f.sharedBy,
-      sharedByEmail: f.sharedByEmail,
-      permission: f.permission as SharePermission,
-      expiresAt: f.expiresAt
-    }));
-    return { files };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load shared files';
-    return { files: [], error: message };
-  }
+  return wrapApiFetch(
+    () => listSharedWithMe(),
+    (data) => ({
+      files: (data.files ?? []).map((f) => ({
+        fileId: f.fileId,
+        filename: f.filename,
+        sharedBy: f.sharedBy,
+        sharedByEmail: f.sharedByEmail,
+        permission: f.permission as SharePermission,
+        expiresAt: f.expiresAt,
+      })),
+    }),
+    (error) => ({ files: [], error }),
+    'Failed to load shared files'
+  );
 }
 
 export interface ShareResult {
@@ -197,14 +211,12 @@ export async function shareFileResult(
   permission: string,
   expiryDays?: number
 ): Promise<ShareResult> {
-  try {
-    const result = await apiShareFile(fileId, shareWithEmail, permission, expiryDays);
-    if (result.error) return { success: false, error: result.error };
-    return { success: true, expiresAt: result.expiresAt };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Share failed';
-    return { success: false, error: message };
-  }
+  return wrapApiFetch(
+    () => apiShareFile(fileId, shareWithEmail, permission, expiryDays),
+    (data): ShareResult => ({ success: true, expiresAt: data.expiresAt }),
+    (error) => ({ success: false, error }),
+    'Share failed'
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -217,19 +229,19 @@ export interface FetchFileSharesResult {
 }
 
 export async function fetchFileShares(fileId: string): Promise<FetchFileSharesResult> {
-  try {
-    const data = await apiListFileShares(fileId);
-    const shares: FileShare[] = (data.shares ?? []).map((s) => ({
-      sharedWith: s.sharedWith,
-      permission: s.permission as SharePermission,
-      sharedAt: s.sharedAt,
-      expiresAt: s.expiresAt
-    }));
-    return { shares };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load shares';
-    return { shares: [], error: message };
-  }
+  return wrapApiFetch(
+    () => apiListFileShares(fileId),
+    (data) => ({
+      shares: (data.shares ?? []).map((s) => ({
+        sharedWith: s.sharedWith,
+        permission: s.permission as SharePermission,
+        sharedAt: s.sharedAt,
+        expiresAt: s.expiresAt,
+      })),
+    }),
+    (error) => ({ shares: [], error }),
+    'Failed to load shares'
+  );
 }
 
 export interface RevokeShareResult {
@@ -272,23 +284,23 @@ export async function createPublicLinkResult(
   password?: string,
   expiryDays?: number
 ): Promise<CreatePublicLinkResult> {
-  try {
-    const data = await apiCreatePublicLink(fileId, password, expiryDays);
-    if (data.error) return { success: false, error: data.error };
-    const link: PublicLink = {
-      token: data.token ?? '',
-      fileId: data.fileId ?? fileId,
-      filename: data.filename ?? '',
-      hasPassword: data.hasPassword ?? false,
-      downloadCount: data.downloadCount ?? 0,
-      createdAt: data.createdAt ?? '',
-      expiresAt: data.expiresAt ?? '',
-    };
-    return { success: true, link };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to create public link';
-    return { success: false, error: message };
-  }
+  return wrapApiFetch(
+    () => apiCreatePublicLink(fileId, password, expiryDays),
+    (data): CreatePublicLinkResult => ({
+      success: true,
+      link: {
+        token: data.token ?? '',
+        fileId: data.fileId ?? fileId,
+        filename: data.filename ?? '',
+        hasPassword: data.hasPassword ?? false,
+        downloadCount: data.downloadCount ?? 0,
+        createdAt: data.createdAt ?? '',
+        expiresAt: data.expiresAt ?? '',
+      } satisfies PublicLink,
+    }),
+    (error) => ({ success: false, error }),
+    'Failed to create public link'
+  );
 }
 
 export interface FetchPublicLinksResult {
@@ -297,22 +309,22 @@ export interface FetchPublicLinksResult {
 }
 
 export async function fetchPublicLinks(fileId: string): Promise<FetchPublicLinksResult> {
-  try {
-    const data = await apiListPublicLinks(fileId);
-    const links: PublicLink[] = (data.links ?? []).map((l) => ({
-      token: l.token,
-      fileId: l.fileId,
-      filename: l.filename,
-      hasPassword: l.hasPassword,
-      downloadCount: l.downloadCount,
-      createdAt: l.createdAt,
-      expiresAt: l.expiresAt,
-    }));
-    return { links };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Failed to load public links';
-    return { links: [], error: message };
-  }
+  return wrapApiFetch(
+    () => apiListPublicLinks(fileId),
+    (data) => ({
+      links: (data.links ?? []).map((l) => ({
+        token: l.token,
+        fileId: l.fileId,
+        filename: l.filename,
+        hasPassword: l.hasPassword,
+        downloadCount: l.downloadCount,
+        createdAt: l.createdAt,
+        expiresAt: l.expiresAt,
+      })),
+    }),
+    (error) => ({ links: [], error }),
+    'Failed to load public links'
+  );
 }
 
 export interface DeletePublicLinkResult {
@@ -346,22 +358,21 @@ export interface FetchPublicLinkInfoResult {
 }
 
 export async function fetchPublicLinkInfo(token: string): Promise<FetchPublicLinkInfoResult> {
-  try {
-    const data = await apiGetPublicLinkInfo(token);
-    if (data.error) return { error: data.error };
-    const info: PublicLinkInfo = {
-      filename: data.filename ?? '',
-      size: data.size ?? 0,
-      contentType: data.contentType ?? 'application/octet-stream',
-      hasPassword: data.hasPassword ?? false,
-      downloadCount: data.downloadCount ?? 0,
-      expiresAt: data.expiresAt ?? '',
-    };
-    return { info };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Link not found or expired';
-    return { error: message };
-  }
+  return wrapApiFetch(
+    () => apiGetPublicLinkInfo(token),
+    (data): FetchPublicLinkInfoResult => ({
+      info: {
+        filename: data.filename ?? '',
+        size: data.size ?? 0,
+        contentType: data.contentType ?? 'application/octet-stream',
+        hasPassword: data.hasPassword ?? false,
+        downloadCount: data.downloadCount ?? 0,
+        expiresAt: data.expiresAt ?? '',
+      } satisfies PublicLinkInfo,
+    }),
+    (error) => ({ error }),
+    'Link not found or expired'
+  );
 }
 
 export interface PublicDownloadUrlResult {
@@ -373,14 +384,12 @@ export async function getPublicDownloadUrl(
   token: string,
   password?: string
 ): Promise<PublicDownloadUrlResult> {
-  try {
-    const data = await apiDownloadPublicLink(token, password);
-    if (data.error) return { error: data.error };
-    return { downloadUrl: data.downloadUrl };
-  } catch (err) {
-    const message = err instanceof Error ? err.message : 'Download failed';
-    return { error: message };
-  }
+  return wrapApiFetch(
+    () => apiDownloadPublicLink(token, password),
+    (data): PublicDownloadUrlResult => ({ downloadUrl: data.downloadUrl }),
+    (error) => ({ error }),
+    'Download failed'
+  );
 }
 
 // ---------------------------------------------------------------------------

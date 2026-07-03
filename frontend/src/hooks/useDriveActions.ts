@@ -1,4 +1,6 @@
 import { useCallback } from 'react';
+import { partitionSelection } from '../service/selection';
+import { openInNewTab } from '../utils';
 import type { DriveFile, DriveFolder } from '../types/drive';
 import { deleteFolder } from '../api';
 import {
@@ -52,7 +54,7 @@ export function useDriveActions({
     const url = await getFileDownloadUrl(file.fileId);
     if (url) {
       onFileAccess?.(file);
-      window.open(url, '_blank', 'noopener,noreferrer');
+      openInNewTab(url);
     } else {
       setError('Download failed');
     }
@@ -64,26 +66,16 @@ export function useDriveActions({
     const result = await getBulkDownloadZipUrl([], [folder.path]);
     setLoading(false);
     if (result.downloadUrl) {
-      window.open(result.downloadUrl, '_blank', 'noopener,noreferrer');
+      openInNewTab(result.downloadUrl);
     } else {
       setError(result.error ?? 'Failed to create ZIP');
     }
   }
 
   async function handleBulkDownloadAsZip(): Promise<void> {
-    const fileIds: string[] = [];
-    const folderPaths: string[] = [];
-    for (const id of Array.from(selectedItems)) {
-      const file = files.find((f) => f.fileId === id);
-      if (file) {
-        fileIds.push(file.fileId);
-        continue;
-      }
-      const folder = folders.find((f) => f.folderId === id);
-      if (folder) {
-        folderPaths.push(folder.path);
-      }
-    }
+    const selection = partitionSelection(selectedItems, files, folders);
+    const fileIds = selection.files.map((f) => f.fileId);
+    const folderPaths = selection.folders.map((f) => f.path);
     if (fileIds.length === 0 && folderPaths.length === 0) {
       setError('No files or folders to download');
       return;
@@ -93,7 +85,7 @@ export function useDriveActions({
     const result = await getBulkDownloadZipUrl(fileIds, folderPaths);
     setLoading(false);
     if (result.downloadUrl) {
-      window.open(result.downloadUrl, '_blank', 'noopener,noreferrer');
+      openInNewTab(result.downloadUrl);
     } else {
       setError(result.error ?? 'Failed to create ZIP');
     }
@@ -178,23 +170,17 @@ export function useDriveActions({
     setLoading(true);
     setError('');
     let failCount = 0;
-    const ids = Array.from(selectedItems);
-    for (let i = 0; i < ids.length; i += 1) {
-      const id = ids[i];
-      const file = files.find((f) => f.fileId === id);
-      if (file) {
-        const r = await deleteFileResult(file.fileId);
-        if (!r.success) failCount += 1;
-        continue;
-      }
-      const folder = folders.find((f) => f.folderId === id);
-      if (folder) {
-        try {
-          const r = await deleteFolder(folder.path);
-          if (r.error) failCount += 1;
-        } catch {
-          failCount += 1;
-        }
+    const selection = partitionSelection(selectedItems, files, folders);
+    for (const file of selection.files) {
+      const r = await deleteFileResult(file.fileId);
+      if (!r.success) failCount += 1;
+    }
+    for (const folder of selection.folders) {
+      try {
+        const r = await deleteFolder(folder.path);
+        if (r.error) failCount += 1;
+      } catch {
+        failCount += 1;
       }
     }
     const hasErrors = failCount > 0;
@@ -217,17 +203,13 @@ export function useDriveActions({
       // If multiple items are selected and the dragged item is among them, move all
       const idsToMove: Array<{ type: 'file' | 'folder'; id: string; path?: string }> = [];
       if (selectedItems.has(dragData.id) && selectedItems.size > 1) {
-        Array.from(selectedItems).forEach((id) => {
-          const file = files.find((f) => f.fileId === id);
-          if (file) {
-            idsToMove.push({ type: 'file', id });
-            return;
-          }
-          const folder = folders.find((f) => f.folderId === id);
-          if (folder) {
-            idsToMove.push({ type: 'folder', id, path: folder.path });
-          }
-        });
+        const selection = partitionSelection(selectedItems, files, folders);
+        for (const file of selection.files) {
+          idsToMove.push({ type: 'file', id: file.fileId });
+        }
+        for (const folder of selection.folders) {
+          idsToMove.push({ type: 'folder', id: folder.folderId, path: folder.path });
+        }
       } else {
         if (dragData.type === 'folder') {
           const folder = folders.find((f) => f.folderId === dragData.id);
