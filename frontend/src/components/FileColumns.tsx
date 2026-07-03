@@ -12,7 +12,7 @@ import type {
   GridSortCellParams
 } from '@mui/x-data-grid';
 import { getExtension } from '../service/fileUtils';
-import type { DriveFile, DriveFolder, FileGridRow, DriveListRow } from '../types/drive';
+import type { DriveFile, DriveFolder, DriveListRow } from '../types/drive';
 import { formatFileSize } from '../types/drive';
 import { FileItem, FileActions } from './File';
 import { FolderItem } from './Folder';
@@ -36,11 +36,6 @@ function DateChipCell({ date }: { date: string }): React.ReactElement {
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-interface FileColumnFactoryInput {
-  onDownload: (file: DriveFile) => void;
-  onDelete: (file: DriveFile) => void;
-}
 
 interface ListColumnFactoryInput {
   onDownload: (file: DriveFile) => void;
@@ -75,70 +70,6 @@ function listRowSortFoldersLast(
 // ---------------------------------------------------------------------------
 // Column factories
 // ---------------------------------------------------------------------------
-
-export class FileColumnsFactory {
-  public static create(input: FileColumnFactoryInput): GridColDef<FileGridRow>[] {
-    return [
-      {
-        field: 'filename',
-        headerName: 'File',
-        flex: 1.6,
-        sortable: true,
-        valueGetter: (params) => params.row.file.filename,
-        renderCell: (params: GridRenderCellParams<FileGridRow>) => (
-          <FileItem file={params.row.file} />
-        )
-      },
-      {
-        field: 'fileextension',
-        headerName: 'Extension',
-        flex: 0.45,
-        sortable: true,
-        valueGetter: (params) => getExtension(params.row.file.filename) ?? 'Unknown',
-        renderCell: (params: GridRenderCellParams<FileGridRow>) => (
-          <ChipCell label={params.value ?? 'Unknown'} />
-        )
-      },
-      {
-        field: 'size',
-        headerName: 'Size',
-        flex: 0.45,
-        type: 'number',
-        valueGetter: (params) => params.row.file.size,
-        renderCell: (params: GridRenderCellParams<FileGridRow>) => (
-          <OutlinedChipCell label={formatFileSize(params.row.file.size)} />
-        )
-      },
-      {
-        field: 'date',
-        headerName: 'Date',
-        width: 140,
-        type: 'dateTime',
-        valueGetter: (params) => new Date(params.row.file.createdAt),
-        renderCell: (params: GridRenderCellParams<FileGridRow>) => (
-          <DateChipCell date={params.row.file.createdAt} />
-        )
-      },
-      {
-        field: 'actions',
-        headerName: 'Actions',
-        width: 130,
-        sortable: false,
-        filterable: false,
-        disableColumnMenu: true,
-        align: 'right',
-        headerAlign: 'right',
-        renderCell: (params: GridRenderCellParams<FileGridRow>) => (
-          <FileActions
-            file={params.row.file}
-            onDownload={input.onDownload}
-            onDelete={input.onDelete}
-          />
-        )
-      }
-    ];
-  }
-}
 
 export class ListColumnsFactory {
   /** Columns for unified list (folders + files). */

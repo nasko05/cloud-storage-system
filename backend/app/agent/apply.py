@@ -12,17 +12,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from ..errors import ApiError
-from ..models import Folder
 from ..services import (
     ROOT_FOLDER_ID,
     create_folder_core,
     move_or_rename_file_core,
     move_or_rename_folder_core,
 )
+from .pathutil import find_child_folder, path_segments
 
 if TYPE_CHECKING:
     from ..schemas import AgentOperation
@@ -78,18 +77,12 @@ def _apply_one(db: Session, owner_id: str, op: AgentOperation, created_paths: di
     raise ApiError(400, f"Unknown operation: {op.tool}")
 
 
-def _segments(path: str | None) -> list[str]:
-    if not path:
-        return []
-    return [seg for seg in path.replace("\\", "/").split("/") if seg and seg != "."]
-
-
 def _join(parent_path: str | None, name: str) -> str:
-    return "/" + "/".join([*_segments(parent_path), name])
+    return "/" + "/".join([*path_segments(parent_path), name])
 
 
 def _resolve_folder_path(db: Session, owner_id: str, path: str | None, created_paths: dict[str, str]) -> str:
-    segments = _segments(path)
+    segments = path_segments(path)
     if any(seg == ".." for seg in segments):
         raise ApiError(400, "Invalid path (must be relative to the drive root, no '..')")
     if not segments:
@@ -104,13 +97,7 @@ def _resolve_folder_path(db: Session, owner_id: str, path: str | None, created_p
         if acc in created_paths:
             current = created_paths[acc]
             continue
-        folder = db.execute(
-            select(Folder).where(
-                Folder.owner_id == owner_id,
-                Folder.parent_folder_id == current,
-                func.lower(Folder.name) == seg.lower(),
-            )
-        ).scalars().first()
+        folder = find_child_folder(db, owner_id, current, seg)
         if folder is None:
             raise ApiError(404, f"Destination folder not found: {path}")
         current = folder.id

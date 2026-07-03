@@ -21,6 +21,7 @@ from ..errors import ApiError
 from ..models import File, Folder
 from ..services import ROOT_FOLDER_ID, require_owned_file
 from .extract import MAX_READ_BYTES, extract_text
+from .pathutil import find_child_folder, path_segments
 
 # Caps so one tool result can't blow the model's context on a large drive.
 MAX_TREE_NODES = 2000
@@ -142,6 +143,14 @@ def tool_definitions() -> list[dict[str, Any]]:
 # --- Read-only execution ----------------------------------------------------
 
 def execute_readonly(db: Session, owner_id: str, name: str, args: dict[str, Any]) -> str:
+    """Run one read-only tool call and return the model-facing result text.
+
+    Error contract: malformed calls (unknown tool, missing/invalid arguments,
+    unauthorized ids) raise :class:`ApiError`, which ``loop._run_readonly`` —
+    the single conversion point — renders as ``"Error: ..."``. Informative
+    outcomes ("no matches", "folder not found, try ...") are ordinary results
+    and are returned as plain strings for the model to reason about.
+    """
     if name == "list_tree":
         path = args.get("path")
         start_path = path if isinstance(path, str) and path.strip() else "/"
@@ -213,7 +222,7 @@ def _list_tree(db: Session, owner_id: str, start_path: str = "/", max_depth: int
                 return
             emit(f"{path}/{file.filename}  [file id={file.id} type={file.content_type} size={file.size}]")
 
-    base = "" if start_id == ROOT_FOLDER_ID else "/" + "/".join(_path_segments(start_path))
+    base = "" if start_id == ROOT_FOLDER_ID else "/" + "/".join(path_segments(start_path))
     walk(start_id, base, 1)
 
     if not lines:
@@ -224,27 +233,15 @@ def _list_tree(db: Session, owner_id: str, start_path: str = "/", max_depth: int
     return out
 
 
-def _path_segments(path: str | None) -> list[str]:
-    if not path:
-        return []
-    return [seg for seg in path.replace("\\", "/").split("/") if seg and seg != "."]
-
-
 def _resolve_existing_folder_id(db: Session, owner_id: str, path: str | None) -> str | None:
     """Resolve a '/'-relative path to an owned folder id (ROOT for '/'); None if
     any segment doesn't exist."""
-    segments = _path_segments(path)
+    segments = path_segments(path)
     if any(seg == ".." for seg in segments):
         return None
     current = ROOT_FOLDER_ID
     for seg in segments:
-        folder = db.execute(
-            select(Folder).where(
-                Folder.owner_id == owner_id,
-                Folder.parent_folder_id == current,
-                func.lower(Folder.name) == seg.lower(),
-            )
-        ).scalars().first()
+        folder = find_child_folder(db, owner_id, current, seg)
         if folder is None:
             return None
         current = folder.id

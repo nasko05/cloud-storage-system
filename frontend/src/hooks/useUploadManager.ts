@@ -1,5 +1,6 @@
 import { type ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { createFolder, uploadFile } from '../api';
+import { normalizePath } from '../service/paths';
 
 const MAX_PARALLEL_UPLOADS = 3;
 
@@ -65,7 +66,6 @@ interface UseUploadManagerArgs {
 
 interface UseUploadManagerResult {
   fileUploadInputRef: React.MutableRefObject<HTMLInputElement | null>;
-  folderUploadInputRef: React.MutableRefObject<HTMLInputElement | null>;
   uploadItems: UploadItemProgress[];
   uploadStats: UploadStats;
   isUploading: boolean;
@@ -73,9 +73,7 @@ interface UseUploadManagerResult {
   isUploadDragActive: boolean;
   setUploadSummary: React.Dispatch<React.SetStateAction<string>>;
   openFilePicker: () => void;
-  openFolderPicker: () => void;
   handleUploadFiles: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
-  handleUploadFolder: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
   uploadFromDataTransfer: (dataTransfer: DataTransfer, destinationPath?: string) => Promise<void>;
   handleCancelUpload: () => void;
 }
@@ -87,13 +85,6 @@ function createClientId(prefix = 'id'): string {
   return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function normalizeDrivePath(path: string): string {
-  if (!path) return '/';
-  const normalized = path.replace(/\/+/g, '/').replace(/\/$/, '');
-  if (!normalized || normalized === '/') return '/';
-  return normalized.startsWith('/') ? normalized : `/${normalized}`;
-}
-
 function normalizeRelativePath(relativePath: string): string {
   return relativePath
     .replace(/\\/g, '/')
@@ -103,10 +94,10 @@ function normalizeRelativePath(relativePath: string): string {
 }
 
 function joinDrivePath(basePath: string, relativePath: string): string {
-  const base = normalizeDrivePath(basePath);
+  const base = normalizePath(basePath);
   const relative = normalizeRelativePath(relativePath);
   if (!relative) return base;
-  return normalizeDrivePath(base === '/' ? `/${relative}` : `${base}/${relative}`);
+  return normalizePath(base === '/' ? `/${relative}` : `${base}/${relative}`);
 }
 
 function dirname(relativePath: string): string {
@@ -217,21 +208,12 @@ async function uploadCandidatesFromDrop(dataTransfer: DataTransfer): Promise<Upl
   return candidates;
 }
 
-function uploadCandidatesFromFileList(
-  fileList: FileList,
-  preserveRelativePath: boolean
-): UploadCandidate[] {
-  return Array.from(fileList).map((rawFile) => {
-    const relativePath =
-      preserveRelativePath && rawFile.webkitRelativePath
-        ? normalizeRelativePath(rawFile.webkitRelativePath)
-        : rawFile.name;
-    return {
-      id: createClientId('upload'),
-      file: rawFile,
-      relativePath
-    };
-  });
+function uploadCandidatesFromFileList(fileList: FileList): UploadCandidate[] {
+  return Array.from(fileList).map((rawFile) => ({
+    id: createClientId('upload'),
+    file: rawFile,
+    relativePath: rawFile.name
+  }));
 }
 
 export function useUploadManager({
@@ -246,16 +228,11 @@ export function useUploadManager({
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
 
   const fileUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const folderUploadInputRef = useRef<HTMLInputElement | null>(null);
   const uploadAbortControllerRef = useRef<AbortController | null>(null);
   const uploadDragDepthRef = useRef(0);
 
   const openFilePicker = useCallback((): void => {
     fileUploadInputRef.current?.click();
-  }, []);
-
-  const openFolderPicker = useCallback((): void => {
-    folderUploadInputRef.current?.click();
   }, []);
 
   const updateUploadItem = useCallback(
@@ -269,7 +246,7 @@ export function useUploadManager({
 
   const ensureFolderPathExists = useCallback(
     async (targetPath: string, folderCache: Set<string>, signal: AbortSignal): Promise<void> => {
-      const normalizedTarget = normalizeDrivePath(targetPath);
+      const normalizedTarget = normalizePath(targetPath);
       if (normalizedTarget === '/' || folderCache.has(normalizedTarget)) return;
 
       const segments = normalizedTarget.split('/').filter(Boolean);
@@ -307,7 +284,7 @@ export function useUploadManager({
         return;
       }
 
-      const basePath = normalizeDrivePath(destinationPathOverride ?? currentPath);
+      const basePath = normalizePath(destinationPathOverride ?? currentPath);
       setError('');
       setUploadSummary('');
       setUploadItems(
@@ -444,20 +421,7 @@ export function useUploadManager({
       if (!selectedFiles || selectedFiles.length === 0) {
         return;
       }
-      const candidates = uploadCandidatesFromFileList(selectedFiles, false);
-      await startUploadBatch(candidates);
-      event.target.value = '';
-    },
-    [startUploadBatch]
-  );
-
-  const handleUploadFolder = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-      const selectedFiles = event.target.files;
-      if (!selectedFiles || selectedFiles.length === 0) {
-        return;
-      }
-      const candidates = uploadCandidatesFromFileList(selectedFiles, true);
+      const candidates = uploadCandidatesFromFileList(selectedFiles);
       await startUploadBatch(candidates);
       event.target.value = '';
     },
@@ -466,13 +430,6 @@ export function useUploadManager({
 
   const handleCancelUpload = useCallback((): void => {
     uploadAbortControllerRef.current?.abort();
-  }, []);
-
-  useEffect(() => {
-    const folderInput = folderUploadInputRef.current;
-    if (!folderInput) return;
-    folderInput.setAttribute('webkitdirectory', '');
-    folderInput.setAttribute('directory', '');
   }, []);
 
   useEffect(() => {
@@ -564,7 +521,6 @@ export function useUploadManager({
 
   return {
     fileUploadInputRef,
-    folderUploadInputRef,
     uploadItems,
     uploadStats,
     isUploading,
@@ -572,9 +528,7 @@ export function useUploadManager({
     isUploadDragActive,
     setUploadSummary,
     openFilePicker,
-    openFolderPicker,
     handleUploadFiles,
-    handleUploadFolder,
     uploadFromDataTransfer,
     handleCancelUpload
   };

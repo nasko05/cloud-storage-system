@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
-VALID_SHARE_PERMISSIONS = ("read", "download", "edit")
+from typing import Literal, get_args
+
+SharePermission = Literal["read", "download", "edit"]
+
+VALID_SHARE_PERMISSIONS: tuple[str, ...] = get_args(SharePermission)
 _DOWNLOADABLE = ("download", "edit")
 
 

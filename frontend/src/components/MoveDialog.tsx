@@ -21,7 +21,6 @@ import { listFiles } from '../api';
 import type { DriveFolder, MoveItem } from '../types/drive';
 import { parseFolder } from '../service/driveService';
 
-export type { MoveItem } from '../types/drive';
 
 export interface MoveDialogProps {
   open: boolean;

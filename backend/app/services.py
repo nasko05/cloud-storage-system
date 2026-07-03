@@ -7,12 +7,14 @@ of duplicated query logic.
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from .config import settings
 from .errors import ApiError
 from .models import File, Folder, PublicLink, Share
 from .utils import now_utc
@@ -27,27 +29,22 @@ def get_file(db: Session, file_id: str) -> File | None:
     return db.get(File, file_id)
 
 
-def get_folder(db: Session, folder_id: str) -> Folder | None:
-    return db.get(Folder, folder_id)
-
-
 def require_owned_file(db: Session, user_id: str, file_id: str) -> File:
+    """Another tenant's file answers 404, not 403, so the API never confirms
+    that a guessed id exists."""
     file = db.get(File, file_id)
-    if file is None:
+    if file is None or file.owner_id != user_id:
         raise ApiError(404, "File not found")
-    if file.owner_id != user_id:
-        raise ApiError(403, "Access denied")
     return file
 
 
 def require_owned_folder(db: Session, user_id: str, folder_id: str) -> Folder:
+    """Cross-tenant access hides existence (404), matching ``require_owned_file``."""
     if folder_id == ROOT_FOLDER_ID:
         raise ApiError(400, "Root folder cannot be modified")
     folder = db.get(Folder, folder_id)
-    if folder is None:
+    if folder is None or folder.owner_id != user_id:
         raise ApiError(404, "Folder not found")
-    if folder.owner_id != user_id:
-        raise ApiError(403, "Access denied")
     return folder
 
 
@@ -64,6 +61,29 @@ def user_storage_usage(db: Session, user_id: str, *, exclude_file_id: str | None
     if exclude_file_id is not None:
         stmt = stmt.where(File.id != exclude_file_id)
     return int(db.scalar(stmt) or 0)
+
+
+def collect_subtree(db: Session, owner_id: str, root_id: str) -> tuple[list[Folder], list[File]]:
+    """BFS the folder tree under ``root_id`` (exclusive of the root itself),
+    returning every owned descendant folder and file. Shared by recursive
+    folder delete and archive collection."""
+    folders: list[Folder] = []
+    files: list[File] = []
+    queue = deque([root_id])
+    while queue:
+        parent_id = queue.popleft()
+        child_folders = db.execute(
+            select(Folder).where(Folder.owner_id == owner_id, Folder.parent_folder_id == parent_id)
+        ).scalars().all()
+        for child in child_folders:
+            folders.append(child)
+            queue.append(child.id)
+        files.extend(
+            db.execute(
+                select(File).where(File.owner_id == owner_id, File.parent_folder_id == parent_id)
+            ).scalars().all()
+        )
+    return folders, files
 
 
 # --- Invariants -------------------------------------------------------------
@@ -107,6 +127,20 @@ def is_descendant_folder(
 
 # --- Shares -----------------------------------------------------------------
 
+def expiry_from_days(days: int | None) -> datetime:
+    """Resolve an ``expiryDays`` payload value (``None`` means the configured
+    default) into an absolute naive-UTC expiry, enforcing the 1–365 range.
+    Shared by the share and public-link routers."""
+    resolved = settings.share_expiry_days if days is None else days
+    try:
+        resolved = int(resolved)
+    except (TypeError, ValueError):
+        raise ApiError(400, "expiryDays must be an integer") from None
+    if resolved < 1 or resolved > 365:
+        raise ApiError(400, "expiryDays must be between 1 and 365")
+    return now_utc() + timedelta(days=resolved)
+
+
 def active_share(
     db: Session, file_id: str, principals: Iterable[tuple[str, str]]
 ) -> Share | None:
@@ -120,7 +154,7 @@ def active_share(
     stmt = select(Share).where(
         Share.file_id == file_id,
         or_(*clauses),
-        _active_window(Share.expires_at, now),
+        active_window(Share.expires_at, now),
     )
     return db.execute(stmt).scalars().first()
 
@@ -134,7 +168,7 @@ def derive_file_flags(db: Session, file_ids: list[str]) -> dict[str, dict[str, b
     now = now_utc()
     shared_ids = db.execute(
         select(Share.file_id)
-        .where(Share.file_id.in_(file_ids), _active_window(Share.expires_at, now))
+        .where(Share.file_id.in_(file_ids), active_window(Share.expires_at, now))
         .distinct()
     ).scalars()
     for fid in shared_ids:
@@ -142,7 +176,7 @@ def derive_file_flags(db: Session, file_ids: list[str]) -> dict[str, dict[str, b
 
     linked_ids = db.execute(
         select(PublicLink.file_id)
-        .where(PublicLink.file_id.in_(file_ids), _active_window(PublicLink.expires_at, now))
+        .where(PublicLink.file_id.in_(file_ids), active_window(PublicLink.expires_at, now))
         .distinct()
     ).scalars()
     for fid in linked_ids:
@@ -151,7 +185,8 @@ def derive_file_flags(db: Session, file_ids: list[str]) -> dict[str, dict[str, b
     return flags
 
 
-def _active_window(column, now: datetime):
+def active_window(column, now: datetime):
+    """SQL predicate for "not expired": a null expiry never expires."""
     return or_(column.is_(None), column > now)
 
 
@@ -165,14 +200,13 @@ def _active_window(column, now: datetime):
 # caller's job — so a failure mid-batch rolls the whole plan back.
 
 
-def create_folder_core(db: Session, owner_id: str, parent_folder_id: str, name: object) -> Folder:
+def create_folder_core(db: Session, owner_id: str, parent_folder_id: str, name: str | None) -> Folder:
     """Create a folder under ``parent_folder_id``. Mirrors the checks in
     ``routers/folders.py:create_folder``."""
     if not folder_exists_for_owner(db, owner_id, parent_folder_id):
         raise ApiError(404, "Parent folder not found")
-    if not is_valid_name(name):
+    if not is_valid_name(name) or name is None:
         raise ApiError(400, "Valid folder name required")
-    assert isinstance(name, str)  # narrowed by is_valid_name
     clean = name.strip()
     if name_conflict(db, owner_id, parent_folder_id, Folder, clean):
         raise ApiError(409, "A folder with that name already exists in destination folder")

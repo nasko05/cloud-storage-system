@@ -25,9 +25,9 @@ def test_apply_create_folder_then_move_file(client):
     assert resp.json()["applied"] == 2
 
     root = _children(client, h)
-    assert not any(i.get("name") == "beach.jpg" for i in root)
+    assert not any(i.get("filename") == "beach.jpg" for i in root)
     photos_id = next(i["folderId"] for i in root if i["type"] == "folder" and i["name"] == "Photos")
-    assert any(i["name"] == "beach.jpg" for i in _children(client, h, photos_id))
+    assert any(i.get("filename") == "beach.jpg" for i in _children(client, h, photos_id))
 
 
 def test_apply_nested_create_then_move(client):
@@ -45,7 +45,7 @@ def test_apply_nested_create_then_move(client):
 
     photos_id = next(i["folderId"] for i in _children(client, h) if i["name"] == "Photos")
     y2026_id = next(i["folderId"] for i in _children(client, h, photos_id) if i["name"] == "2026")
-    assert any(i["name"] == "img.png" for i in _children(client, h, y2026_id))
+    assert any(i.get("filename") == "img.png" for i in _children(client, h, y2026_id))
 
 
 def test_apply_move_folder(client):
@@ -72,7 +72,7 @@ def test_apply_rename_file_and_folder(client):
     ]
     resp = client.post("/v2/agent/apply", json={"operations": ops}, headers=h)
     assert resp.status_code == 200
-    names = {i["name"] for i in _children(client, h)}
+    names = {i["name"] if i["type"] == "folder" else i["filename"] for i in _children(client, h)}
     assert "new.txt" in names and "NewFolder" in names
 
 
@@ -148,7 +148,7 @@ def test_apply_foreign_node_denied(client):
 
     ops = [{"tool": "rename_node", "nodeType": "file", "id": fid, "newName": "x.txt"}]
     resp = client.post("/v2/agent/apply", json={"operations": ops}, headers=auth_header(token_b))
-    assert resp.status_code == 403
+    assert resp.status_code == 404, "foreign nodes look nonexistent"
 
 
 def test_apply_validation_errors(client):

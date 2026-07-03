@@ -2,18 +2,26 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from .. import antivirus, storage
 from ..blob_links import build_upload_url
 from ..config import settings
-from ..deps import CurrentUser, get_current_user, get_db
+from ..deps import CurrentUser, IdempotencyKey, get_current_user, get_db
 from ..errors import ApiError
-from ..idempotency import run_idempotent
+from ..idempotency import idempotent_response
 from ..models import File
-from ..schemas import CreateUploadRequest, PatchFileRequest
+from ..schemas import (
+    CreateUploadRequest,
+    DeleteFileOut,
+    FinalizeOut,
+    MessageOut,
+    PatchFileOut,
+    PatchFileRequest,
+    UploadCreateOut,
+)
 from ..services import (
     folder_exists_for_owner,
     move_or_rename_file_core,
@@ -40,7 +48,7 @@ def create_upload(
     request: Request,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         if not is_valid_name(payload.filename):
@@ -78,15 +86,14 @@ def create_upload(
         file.storage_key = storage.file_key(user.id, file.id, file.filename)
         db.flush()
 
-        return 201, {
-            "fileId": file.id,
-            "uploadUrl": build_upload_url(request, file.storage_key),
-            "expiresIn": settings.signed_url_expiry_seconds,
-            "status": "pending",
-        }
+        return 201, UploadCreateOut(
+            fileId=file.id,
+            uploadUrl=build_upload_url(request, file.storage_key),
+            expiresIn=settings.signed_url_expiry_seconds,
+            status="pending",
+        ).model_dump()
 
-    status, body = run_idempotent(db, user.id, "files-upload-create", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, "files-upload-create", idempotency_key, action)
 
 
 @router.post("/{file_id}/finalize")
@@ -94,7 +101,7 @@ def finalize_upload(
     file_id: str,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         file = require_owned_file(db, user.id, file_id)
@@ -120,15 +127,14 @@ def finalize_upload(
             file.size = actual_size
             db.flush()
 
-        return 200, {
-            "fileId": file.id,
-            "status": "ready",
-            "size": actual_size,
-            "contentType": file.content_type,
-        }
+        return 200, FinalizeOut(
+            fileId=file.id,
+            status="ready",
+            size=actual_size,
+            contentType=file.content_type,
+        ).model_dump()
 
-    status, body = run_idempotent(db, user.id, f"files-finalize-{file_id}", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, f"files-finalize-{file_id}", idempotency_key, action)
 
 
 @router.patch("/{file_id}")
@@ -137,7 +143,7 @@ def patch_file(
     payload: PatchFileRequest,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         if payload.newName is None and payload.destinationFolderId is None:
@@ -151,16 +157,15 @@ def patch_file(
             dest_folder_id=payload.destinationFolderId,
         )
         if not changed:
-            return 200, {"message": "No changes"}
-        return 200, {
-            "message": "File updated",
-            "fileId": file.id,
-            "filename": file.filename,
-            "parentFolderId": file.parent_folder_id,
-        }
+            return 200, MessageOut(message="No changes").model_dump()
+        return 200, PatchFileOut(
+            message="File updated",
+            fileId=file.id,
+            filename=file.filename,
+            parentFolderId=file.parent_folder_id,
+        ).model_dump()
 
-    status, body = run_idempotent(db, user.id, f"files-patch-{file_id}", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, f"files-patch-{file_id}", idempotency_key, action)
 
 
 @router.delete("/{file_id}")
@@ -168,14 +173,13 @@ def delete_file(
     file_id: str,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         file = require_owned_file(db, user.id, file_id)
         storage.delete(file.storage_key)
         db.delete(file)  # cascades to shares + public links
         db.flush()
-        return 200, {"message": "File deleted", "fileId": file_id}
+        return 200, DeleteFileOut(message="File deleted", fileId=file_id).model_dump()
 
-    status, body = run_idempotent(db, user.id, f"files-delete-{file_id}", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, f"files-delete-{file_id}", idempotency_key, action)

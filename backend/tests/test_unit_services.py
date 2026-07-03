@@ -49,7 +49,7 @@ def test_require_owned_file(db):
     assert e1.value.status_code == 404
     with pytest.raises(ApiError) as e2:
         services.require_owned_file(db, "other", "f1")
-    assert e2.value.status_code == 403
+    assert e2.value.status_code == 404, "cross-tenant access hides existence"
 
 
 def test_require_owned_folder(db):
@@ -63,7 +63,7 @@ def test_require_owned_folder(db):
     assert nf.value.status_code == 404
     with pytest.raises(ApiError) as denied:
         services.require_owned_folder(db, "other", "d1")
-    assert denied.value.status_code == 403
+    assert denied.value.status_code == 404, "cross-tenant access hides existence"
     assert services.require_owned_folder(db, "u1", "d1").id == "d1"
 
 

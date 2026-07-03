@@ -35,7 +35,7 @@ def test_lazy_pagination_walks_folders_then_files(client):
     folders = [i for i in items if i["type"] == "folder"]
     files = [i for i in items if i["type"] == "file"]
     assert [f["name"] for f in folders] == folder_names              # sorted, all present
-    assert [f["name"] for f in files] == file_names
+    assert [f["filename"] for f in files] == file_names
     # Folders are streamed before files.
     assert items[len(folder_names) - 1]["type"] == "folder"
     assert items[len(folder_names)]["type"] == "file"

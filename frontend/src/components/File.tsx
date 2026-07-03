@@ -11,10 +11,6 @@ import {
 } from '@mui/material';
 import type { DriveFile } from '../types/drive';
 
-// Re-export types so existing `import from './File'` still resolves
-export type { DriveFile, FileShape, FileGridRow, DriveListRow } from '../types/drive';
-export { driveFileFromUnknown, formatFileSize, toFileGridRow } from '../types/drive';
-
 // ---------------------------------------------------------------------------
 // Row components
 // ---------------------------------------------------------------------------

@@ -10,7 +10,11 @@ from .database import get_db
 from .errors import ApiError
 from .security import decode_access_token
 
-__all__ = ["get_db", "CurrentUser", "get_current_user"]
+__all__ = ["get_db", "CurrentUser", "get_current_user", "IdempotencyKey"]
+
+# Shared parameter default for the Idempotency-Key header, so every mutating
+# route declares it identically: `idempotency_key: str | None = IdempotencyKey`.
+IdempotencyKey = Header(default=None, alias="Idempotency-Key")
 
 
 @dataclass(frozen=True)

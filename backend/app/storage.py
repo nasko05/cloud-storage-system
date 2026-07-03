@@ -8,7 +8,6 @@ resolved underneath the storage root to defend against traversal.
 
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
 
 from .config import settings
@@ -55,7 +54,3 @@ def delete(key: str) -> None:
         pass
     except OSError:
         pass
-
-
-def remove_user_tree() -> None:  # pragma: no cover - maintenance helper
-    shutil.rmtree(settings.storage_dir, ignore_errors=True)

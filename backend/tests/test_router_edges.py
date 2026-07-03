@@ -65,7 +65,7 @@ def test_file_delete_requires_owner(client):
     owner, _, _ = register_and_login(client)
     other, _, _ = register_and_login(client)
     fid = upload_file(client, owner, "x.txt")
-    assert client.delete(f"/v2/files/{fid}", headers=auth_header(other)).status_code == 403
+    assert client.delete(f"/v2/files/{fid}", headers=auth_header(other)).status_code == 404
 
 
 # --- folders ----------------------------------------------------------------
@@ -108,9 +108,9 @@ def test_public_link_admin_edges(client):
     token = client.post(f"/v2/files/{fid}/public-links", json={}, headers=auth_header(owner)).json()["token"]
 
     assert client.patch(f"/v2/public-links/{token}", json={}, headers=auth_header(owner)).status_code == 400
-    assert client.patch(f"/v2/public-links/{token}", json={"expiryDays": 1}, headers=auth_header(other)).status_code == 403
+    assert client.patch(f"/v2/public-links/{token}", json={"expiryDays": 1}, headers=auth_header(other)).status_code == 404
     assert client.delete("/v2/public-links/ghost", headers=auth_header(owner)).status_code == 404
-    assert client.post(f"/v2/files/{fid}/public-links", json={}, headers=auth_header(other)).status_code == 403
+    assert client.post(f"/v2/files/{fid}/public-links", json={}, headers=auth_header(other)).status_code == 404
 
 
 def test_public_download_edges(client):
@@ -151,7 +151,7 @@ def test_download_edges(client):
 
     assert client.post("/v2/download/files/ghost", json={}, headers=h).status_code == 404
     fid = upload_file(client, owner, "d.txt", content=b"data")
-    assert client.post(f"/v2/download/files/{fid}", json={}, headers=auth_header(other)).status_code == 403
+    assert client.post(f"/v2/download/files/{fid}", json={}, headers=auth_header(other)).status_code == 404
 
     # Remove the blob from disk -> 404 from storage.
     db = SessionLocal()
@@ -161,6 +161,22 @@ def test_download_edges(client):
         db.close()
     storage.delete(key)
     assert client.post(f"/v2/download/files/{fid}", json={}, headers=h).status_code == 404
+
+
+def test_download_of_unfinalized_upload_is_conflict(client):
+    """Uploaded bytes that never went through finalize (antivirus + quota
+    re-check) must not become downloadable as a side effect of asking."""
+    owner, _, _ = register_and_login(client)
+    h = auth_header(owner)
+    init = client.post(
+        "/v2/files/uploads",
+        json={"filename": "pending.txt", "contentType": "text/plain", "size": 4},
+        headers=h,
+    ).json()
+    assert client.put(init["uploadUrl"].replace("http://testserver", ""), content=b"data").status_code == 200
+
+    resp = client.post(f"/v2/download/files/{init['fileId']}", json={}, headers=h)
+    assert resp.status_code == 409
 
 
 # --- blobs ------------------------------------------------------------------

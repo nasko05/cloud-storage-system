@@ -18,7 +18,6 @@ import {
   ListItemText,
   MenuItem,
   Select,
-  Snackbar,
   Stack,
   Switch,
   Tab,
@@ -34,6 +33,8 @@ import AddLinkRoundedIcon from '@mui/icons-material/AddLinkRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import LockRoundedIcon from '@mui/icons-material/LockRounded';
 import type { ShareTarget, SharePermission, FileShare, PublicLink } from '../types/drive';
+import { formatDate } from '../utils';
+import SuccessToast from './SuccessToast';
 import {
   fetchFileShares,
   revokeShare,
@@ -44,7 +45,6 @@ import {
   updatePublicLinkResult,
 } from '../service/driveService';
 
-export type { ShareTarget, SharePermission } from '../types/drive';
 
 export interface ShareDialogProps {
   target: ShareTarget;
@@ -398,7 +398,7 @@ export function ShareDialog({
                               </Select>
                             </FormControl>
                             <Typography component="span" variant="caption" color="text.secondary">
-                              Expires: {new Date(share.expiresAt).toLocaleDateString()}
+                              Expires: {formatDate(share.expiresAt)}
                             </Typography>
                           </Stack>
                         }
@@ -551,7 +551,7 @@ export function ShareDialog({
                                 </Typography>
                               </Stack>
                               <Typography component="span" variant="caption" color="text.secondary">
-                                Expires: {new Date(link.expiresAt).toLocaleDateString()}
+                                Expires: {formatDate(link.expiresAt)}
                               </Typography>
                             </Stack>
                           }
@@ -578,21 +578,7 @@ export function ShareDialog({
         </DialogActions>
       </Dialog>
 
-      <Snackbar
-        open={snackMsg.length > 0}
-        autoHideDuration={2500}
-        onClose={() => setSnackMsg('')}
-        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-      >
-        <Alert
-          onClose={() => setSnackMsg('')}
-          severity="success"
-          variant="filled"
-          sx={{ width: '100%' }}
-        >
-          {snackMsg}
-        </Alert>
-      </Snackbar>
+      <SuccessToast message={snackMsg} onClose={() => setSnackMsg('')} autoHideDuration={2500} />
     </>
   );
 }

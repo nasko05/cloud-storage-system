@@ -18,7 +18,7 @@ def test_create_nested_and_list(client):
     assert any(i["type"] == "folder" and i["name"] == "Documents" for i in root_items)
 
     child_items = client.get(f"/v2/folders/{child}/children", headers=headers).json()["items"]
-    assert any(i["type"] == "file" and i["name"] == "a.txt" for i in child_items)
+    assert any(i["type"] == "file" and i["filename"] == "a.txt" for i in child_items)
 
 
 def test_non_recursive_delete_blocks_non_empty(client):

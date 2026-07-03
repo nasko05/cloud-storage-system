@@ -16,7 +16,6 @@ import {
   ListItemIcon,
   ListItemText,
   Paper,
-  Snackbar,
   Stack,
   Tab,
   Tabs,
@@ -52,11 +51,10 @@ import {
   renameFolderResult,
   shareFileResult
 } from './service/driveService';
-import type { DriveFolder } from './components/Folder';
+import type { DriveFolder } from './types/drive';
 import type {
   DriveFile,
   DriveListRow,
-  FileGridRow,
   ContextMenuTarget,
   ContextMenuPosition,
   RenameTarget,
@@ -65,8 +63,7 @@ import type {
   SharePermission,
   SharedFile
 } from './types/drive';
-import { toFileGridRow } from './types/drive';
-import { FileColumnsFactory, ListColumnsFactory } from './components/FileColumns';
+import { ListColumnsFactory } from './components/FileColumns';
 import { GridLayout, type GridSize } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
 import { ContextMenu } from './components/ContextMenu';
@@ -85,6 +82,9 @@ import { useDriveActions } from './hooks/useDriveActions';
 import { useUploadManager } from './hooks/useUploadManager';
 import { useFileAccessHistory, type FileAccessRecord } from './hooks/useFileAccessHistory';
 import './App.css';
+import { partitionSelection } from './service/selection';
+import SuccessToast from './components/SuccessToast';
+import { formatDate } from './utils';
 
 type ViewMode = 'grid' | 'list';
 type DriveTab = 'my-drive' | 'shared-with-me';
@@ -428,17 +428,13 @@ function App(): JSX.Element {
     const items: MoveItem[] = [];
 
     if (selectedItems.size > 1) {
-      Array.from(selectedItems).forEach((id) => {
-        const file = files.find((f) => f.fileId === id);
-        if (file) {
-          items.push({ type: 'file', id: file.fileId, name: file.filename });
-          return;
-        }
-        const folder = folders.find((f) => f.folderId === id);
-        if (folder) {
-          items.push({ type: 'folder', id: folder.folderId, path: folder.path, name: folder.name });
-        }
-      });
+      const selection = partitionSelection(selectedItems, files, folders);
+      for (const file of selection.files) {
+        items.push({ type: 'file', id: file.fileId, name: file.filename });
+      }
+      for (const folder of selection.folders) {
+        items.push({ type: 'folder', id: folder.folderId, path: folder.path, name: folder.name });
+      }
     } else if (ctxTarget) {
       if (ctxTarget.type === 'file') {
         items.push({ type: 'file', id: ctxTarget.file.fileId, name: ctxTarget.file.filename });
@@ -632,19 +628,6 @@ function App(): JSX.Element {
       createdAt: ''
     } as DriveFile);
   };
-
-  const rows: FileGridRow[] = useMemo(
-    () => files.map((file) => toFileGridRow(file)),
-    [files]
-  );
-
-  const columns = useMemo(
-    () => FileColumnsFactory.create({
-      onDownload: handleDownload,
-      onDelete: handleDelete
-    }),
-    [handleDownload, handleDelete]
-  );
 
   const listRows: DriveListRow[] = useMemo(() => {
     const folderRows: DriveListRow[] = folders.map((f) => ({
@@ -1198,7 +1181,7 @@ function App(): JSX.Element {
                                   sx={{ height: 20, fontSize: '0.7rem' }}
                                 />
                                 <Typography component="span" variant="caption" color="text.secondary">
-                                  Expires: {new Date(sf.expiresAt).toLocaleDateString()}
+                                  Expires: {formatDate(sf.expiresAt)}
                                 </Typography>
                               </Stack>
                             }
@@ -1291,21 +1274,7 @@ function App(): JSX.Element {
             onDownload={handleDownload}
           />
 
-          <Snackbar
-            open={!!shareSuccess}
-            autoHideDuration={3000}
-            onClose={() => setShareSuccess('')}
-            anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
-          >
-            <Alert
-              onClose={() => setShareSuccess('')}
-              severity="success"
-              variant="filled"
-              sx={{ width: '100%' }}
-            >
-              {shareSuccess}
-            </Alert>
-          </Snackbar>
+          <SuccessToast message={shareSuccess} onClose={() => setShareSuccess('')} />
 
           {assistantConfigured && <Assistant onApplied={() => loadFiles()} />}
       </Box>

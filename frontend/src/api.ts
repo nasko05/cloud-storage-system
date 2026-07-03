@@ -1,3 +1,4 @@
+import { joinPath, normalizePath } from './service/paths';
 import { config } from './config';
 import { getToken } from './auth';
 
@@ -125,28 +126,64 @@ type PagedItems<T> = {
   nextCursor?: string | null;
 };
 
-interface V2FolderChildItem {
-  type?: 'file' | 'folder';
-  fileId?: string;
+// Folder-children items are a discriminated union: folders expose `name`,
+// files expose `filename` (matching the backend's ChildFolderOut/ChildFileOut).
+interface V2ChildFolder {
+  type: 'folder';
   folderId?: string;
   name?: string;
-  size?: number;
+  parentFolderId?: string;
   createdAt?: string;
   updatedAt?: string;
-  sharedAt?: string;
+}
+
+interface V2ChildFile {
+  type: 'file';
+  fileId?: string;
+  filename?: string;
+  parentFolderId?: string;
+  size?: number;
+  contentType?: string;
+  status?: string;
+  isShared?: boolean;
+  hasPublicLink?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+type V2FolderChild = V2ChildFolder | V2ChildFile;
+
+interface V2InboundShareItem {
+  fileId?: string;
+  filename?: string;
+  ownerId?: string;
+  ownerEmail?: string;
   permission?: string;
-  hasPassword?: boolean;
-  downloadCount?: number;
-  expiresAt?: string;
   principalType?: string;
   principalValue?: string;
   principalDisplay?: string;
-  ownerId?: string;
-  ownerEmail?: string;
-  filename?: string;
+  sharedAt?: string;
+  expiresAt?: string;
+}
+
+interface V2FileShareItem {
+  principalType?: string;
+  principalValue?: string;
+  principalDisplay?: string;
+  permission?: string;
+  sharedAt?: string;
+  expiresAt?: string;
+}
+
+interface V2PublicLinkItem {
   token?: string;
-  isShared?: boolean;
-  hasPublicLink?: boolean;
+  fileId?: string;
+  filename?: string;
+  hasPassword?: boolean;
+  downloadCount?: number;
+  createdAt?: string;
+  updatedAt?: string;
+  expiresAt?: string;
 }
 
 interface V2ArchiveCreateResult extends ApiResult {
@@ -237,19 +274,6 @@ function sleep(ms: number): Promise<void> {
   });
 }
 
-function normalizePath(path?: string): string {
-  if (!path || path === '/') return '/';
-  const trimmed = path.trim();
-  if (!trimmed) return '/';
-  const withLeadingSlash = trimmed.startsWith('/') ? trimmed : `/${trimmed}`;
-  const normalized = withLeadingSlash.replace(/\/+/g, '/').replace(/\/$/, '');
-  return normalized || '/';
-}
-
-function joinChildPath(parentPath: string, childName: string): string {
-  return parentPath === '/' ? `/${childName}` : `${parentPath}/${childName}`;
-}
-
 function principalPath(value: string): string {
   const raw = value.trim();
   if (raw.startsWith('email:') || raw.startsWith('user_sub:')) {
@@ -258,27 +282,20 @@ function principalPath(value: string): string {
   return raw.includes('@') ? `email:${raw}` : `user_sub:${raw}`;
 }
 
-async function listFolderChildrenById(folderId: string, cursor?: string): Promise<PagedItems<V2FolderChildItem>> {
+/** Build a paginated route: full pages of 200 plus the opaque cursor. */
+function pagedRoute(base: string, cursor?: string): string {
   const query = new URLSearchParams();
   query.set('limit', '200');
   if (cursor) query.set('cursor', cursor);
-
-  return DriveApiClient.authRequest<PagedItems<V2FolderChildItem>>(
-    `/v2/folders/${encodeURIComponent(folderId)}/children?${query.toString()}`,
-    'GET'
-  );
+  return `${base}?${query.toString()}`;
 }
 
-async function listAllFolderChildren(folderId: string): Promise<V2FolderChildItem[]> {
-  const out: V2FolderChildItem[] = [];
-  let cursor: string | undefined;
-
-  do {
-    const page = await listFolderChildrenById(folderId, cursor);
-    if (Array.isArray(page.items)) out.push(...page.items);
-    cursor = page.nextCursor || undefined;
-  } while (cursor);
-
+async function listAllFolderChildren(folderId: string): Promise<V2FolderChild[]> {
+  const out: V2FolderChild[] = [];
+  await fetchAllPages<V2FolderChild>(
+    (cursor) => pagedRoute(`/v2/folders/${encodeURIComponent(folderId)}/children`, cursor),
+    (item) => out.push(item)
+  );
   return out;
 }
 
@@ -298,12 +315,14 @@ async function resolveFolderIdByPath(path?: string): Promise<string> {
 
   for (const segment of segments) {
     const children = await listAllFolderChildren(currentId);
-    const folder = children.find((item) => item.type === 'folder' && item.name === segment);
+    const folder = children.find(
+      (item): item is V2ChildFolder => item.type === 'folder' && item.name === segment
+    );
     if (!folder?.folderId) {
       throw new Error(`Folder not found: ${normalizedPath}`);
     }
     currentId = folder.folderId;
-    currentPath = joinChildPath(currentPath, segment);
+    currentPath = joinPath(currentPath, segment);
     folderPathCache.set(currentPath, currentId);
   }
 
@@ -330,10 +349,10 @@ export const listFiles = async (folder?: string): Promise<ListFilesResult> => {
   const items = await listAllFolderChildren(folderId);
 
   const files = items
-    .filter((item) => item.type === 'file' && item.fileId && item.name)
+    .filter((item): item is V2ChildFile => item.type === 'file' && Boolean(item.fileId) && Boolean(item.filename))
     .map((item) => ({
       fileId: item.fileId as string,
-      filename: item.name as string,
+      filename: item.filename as string,
       size: Number(item.size ?? 0),
       createdAt: (item.createdAt || item.updatedAt || '') as string,
       isShared: Boolean(item.isShared),
@@ -341,9 +360,9 @@ export const listFiles = async (folder?: string): Promise<ListFilesResult> => {
     }));
 
   const folders = items
-    .filter((item) => item.type === 'folder' && item.folderId && item.name)
+    .filter((item): item is V2ChildFolder => item.type === 'folder' && Boolean(item.folderId) && Boolean(item.name))
     .map((item) => {
-      const pathValue = joinChildPath(currentPath, item.name as string);
+      const pathValue = joinPath(currentPath, item.name as string);
       folderPathCache.set(pathValue, item.folderId as string);
       return {
         folderId: item.folderId as string,
@@ -366,7 +385,7 @@ export const createFolder = async (folderName: string, path?: string): Promise<C
   }>(`/v2/folders/${encodeURIComponent(parentFolderId)}/folders`, 'POST', { name: folderName });
 
   const createdName = result.name ?? folderName;
-  const createdPath = joinChildPath(parentPath, createdName);
+  const createdPath = joinPath(parentPath, createdName);
   if (result.folderId) folderPathCache.set(createdPath, result.folderId);
 
   return {
@@ -561,19 +580,14 @@ export const renameFolder = async (folderPath: string, newName: string): Promise
 export const listSharedWithMe = async (): Promise<SharedWithMeResult> => {
   const files: SharedWithMeResult['files'] = [];
 
-  await fetchAllPages<V2FolderChildItem>(
-    (cursor) => {
-      const query = new URLSearchParams();
-      query.set('limit', '200');
-      if (cursor) query.set('cursor', cursor);
-      return `/v2/shares/inbound?${query.toString()}`;
-    },
+  await fetchAllPages<V2InboundShareItem>(
+    (cursor) => pagedRoute('/v2/shares/inbound', cursor),
     (item) => {
       files?.push({
         fileId: String(item.fileId || ''),
         sharedBy: String(item.ownerId || ''),
         sharedByEmail: String(item.ownerEmail || ''),
-        filename: String(item.filename || item.name || ''),
+        filename: String(item.filename || ''),
         permission: String(item.permission || 'read'),
         expiresAt: String(item.expiresAt || ''),
       });
@@ -613,18 +627,13 @@ export const shareFile = async (
 export const listFileShares = async (fileId: string): Promise<ListFileSharesResult> => {
   const shares: ListFileSharesResult['shares'] = [];
 
-  await fetchAllPages<V2FolderChildItem>(
-    (cursor) => {
-      const query = new URLSearchParams();
-      query.set('limit', '200');
-      if (cursor) query.set('cursor', cursor);
-      return `/v2/files/${encodeURIComponent(fileId)}/shares?${query.toString()}`;
-    },
+  await fetchAllPages<V2FileShareItem>(
+    (cursor) => pagedRoute(`/v2/files/${encodeURIComponent(fileId)}/shares`, cursor),
     (item) => {
       shares?.push({
         sharedWith: String(item.principalDisplay || item.principalValue || ''),
         permission: String(item.permission || 'read'),
-        sharedAt: String(item.sharedAt || item.createdAt || ''),
+        sharedAt: String(item.sharedAt || ''),
         expiresAt: String(item.expiresAt || ''),
       });
     }
@@ -675,13 +684,8 @@ export const createPublicLink = async (
 export const listPublicLinks = async (fileId: string): Promise<ListPublicLinksResult> => {
   const links: NonNullable<ListPublicLinksResult['links']> = [];
 
-  await fetchAllPages<V2FolderChildItem>(
-    (cursor) => {
-      const query = new URLSearchParams();
-      query.set('limit', '200');
-      if (cursor) query.set('cursor', cursor);
-      return `/v2/files/${encodeURIComponent(fileId)}/public-links?${query.toString()}`;
-    },
+  await fetchAllPages<V2PublicLinkItem>(
+    (cursor) => pagedRoute(`/v2/files/${encodeURIComponent(fileId)}/public-links`, cursor),
     (item) => {
       links.push({
         token: String(item.token || ''),

@@ -19,6 +19,7 @@ import { FolderIcon, FolderActions } from './Folder';
 import { DynamicRenderedIcon } from './DynamicRenderedIcon';
 import { ImageThumbnail } from './ImageThumbnail';
 import { isImageFilename } from '../service/fileUtils';
+import { formatDate } from '../utils';
 
 export type GridSize = 'small' | 'medium' | 'large';
 
@@ -256,7 +257,7 @@ export function GridLayout({
                 color="text.secondary"
                 sx={{ mt: 0.25 }}
               >
-                {new Date(folder.createdAt).toLocaleDateString()}
+                {formatDate(folder.createdAt)}
               </Typography>
             )}
           </CardActionArea>

@@ -4,18 +4,18 @@ from __future__ import annotations
 
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, Header, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from .. import archive
 from ..blob_links import build_download_url
 from ..config import settings
-from ..deps import CurrentUser, get_current_user, get_db
+from ..deps import CurrentUser, IdempotencyKey, get_current_user, get_db
 from ..errors import ApiError
-from ..idempotency import run_idempotent
+from ..idempotency import idempotent_response
 from ..models import ArchiveJob
-from ..schemas import CreateArchiveRequest
+from ..schemas import ArchiveQueuedOut, CreateArchiveRequest
 from ..utils import iso, now_utc
 
 router = APIRouter(prefix="/v2/download/archives", tags=["archive"])
@@ -41,7 +41,7 @@ def create_archive(
     payload: CreateArchiveRequest,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         file_ids = _dedupe(payload.fileIds)
@@ -60,10 +60,9 @@ def create_archive(
         db.flush()
         db.commit()  # persist before the worker (separate session) picks it up
         archive.enqueue(job.id)
-        return 202, {"archiveJobId": job.id, "status": "queued"}
+        return 202, ArchiveQueuedOut(archiveJobId=job.id, status="queued").model_dump()
 
-    status, body = run_idempotent(db, user.id, "archive-queue", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, "archive-queue", idempotency_key, action)
 
 
 @router.get("/{archive_job_id}")

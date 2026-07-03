@@ -65,16 +65,6 @@ export function formatFileSize(size: number): string {
 // Grid / List row types
 // ---------------------------------------------------------------------------
 
-export interface FileGridRow {
-  id: string;
-  file: DriveFile;
-}
-
-/** Convert a DriveFile to a grid row. */
-export function toFileGridRow(file: DriveFile): FileGridRow {
-  return { id: file.fileId, file };
-}
-
 /** Unified row for list view: folders and files in one grid. */
 export type DriveListRow =
   | { id: string; type: 'file'; file: DriveFile }

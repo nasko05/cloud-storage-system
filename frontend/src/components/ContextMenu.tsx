@@ -15,7 +15,6 @@ import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import type { ContextMenuTarget, ContextMenuPosition } from '../types/drive';
 import { previewKind } from '../service/fileUtils';
 
-export type { ContextMenuTarget, ContextMenuPosition } from '../types/drive';
 
 export interface ContextMenuProps {
   target: ContextMenuTarget;
