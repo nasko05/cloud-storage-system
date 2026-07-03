@@ -34,15 +34,20 @@ def issue_download_url(
     if not is_owner:
         share = active_share(db, file_id, user_principals(user))
         if share is None:
-            raise ApiError(403, "Access denied")
+            # No share at all: hide the file's existence entirely. A share
+            # with the wrong permission stays 403 — that caller already
+            # provably knows the file exists.
+            raise ApiError(404, "File not found")
         if not can_download(share.permission):
             raise ApiError(403, "Insufficient share permission for download")
 
     if not storage.exists(file.storage_key):
         raise ApiError(404, "File not found in storage")
     if file.status != "ready":
-        file.status = "ready"
-        db.flush()
+        # A file that skipped finalize has not passed the antivirus scan or
+        # quota re-check, so refuse rather than silently marking it ready
+        # (matching the public-download behaviour).
+        raise ApiError(409, "File is not ready for download")
 
     out = {
         "downloadUrl": build_download_url(request, file.storage_key, file.filename),

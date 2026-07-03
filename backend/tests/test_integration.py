@@ -69,7 +69,7 @@ def test_full_owner_and_recipient_journey(client):
 
     # Revoke the share; recipient loses access.
     client.delete(f"/v2/files/{report}/shares/email:{recipient_email}", headers=oh)
-    assert client.post(f"/v2/download/files/{report}", json={}, headers=auth_header(recipient)).status_code == 403
+    assert client.post(f"/v2/download/files/{report}", json={}, headers=auth_header(recipient)).status_code == 404
 
     # Recursively delete the tree; everything is gone.
     deleted = client.delete(f"/v2/folders/{docs}?recursive=true", headers=oh)

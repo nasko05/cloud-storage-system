@@ -6,9 +6,9 @@ def test_share_grants_download_by_email(client):
     recipient_token, _, recipient_email = register_and_login(client)
     file_id = upload_file(client, owner_token, "shared.txt", content=b"secret")
 
-    # No share yet -> denied
+    # No share yet -> the file looks nonexistent
     denied = client.post(f"/v2/download/files/{file_id}", json={}, headers=auth_header(recipient_token))
-    assert denied.status_code == 403
+    assert denied.status_code == 404
 
     # Read-only share still cannot download
     client.put(

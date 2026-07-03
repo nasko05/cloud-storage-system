@@ -148,7 +148,7 @@ def test_apply_foreign_node_denied(client):
 
     ops = [{"tool": "rename_node", "nodeType": "file", "id": fid, "newName": "x.txt"}]
     resp = client.post("/v2/agent/apply", json={"operations": ops}, headers=auth_header(token_b))
-    assert resp.status_code == 403
+    assert resp.status_code == 404, "foreign nodes look nonexistent"
 
 
 def test_apply_validation_errors(client):

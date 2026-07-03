@@ -30,22 +30,21 @@ def get_file(db: Session, file_id: str) -> File | None:
 
 
 def require_owned_file(db: Session, user_id: str, file_id: str) -> File:
+    """Another tenant's file answers 404, not 403, so the API never confirms
+    that a guessed id exists."""
     file = db.get(File, file_id)
-    if file is None:
+    if file is None or file.owner_id != user_id:
         raise ApiError(404, "File not found")
-    if file.owner_id != user_id:
-        raise ApiError(403, "Access denied")
     return file
 
 
 def require_owned_folder(db: Session, user_id: str, folder_id: str) -> Folder:
+    """Cross-tenant access hides existence (404), matching ``require_owned_file``."""
     if folder_id == ROOT_FOLDER_ID:
         raise ApiError(400, "Root folder cannot be modified")
     folder = db.get(Folder, folder_id)
-    if folder is None:
+    if folder is None or folder.owner_id != user_id:
         raise ApiError(404, "Folder not found")
-    if folder.owner_id != user_id:
-        raise ApiError(403, "Access denied")
     return folder
 
 

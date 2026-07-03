@@ -28,11 +28,10 @@ router = APIRouter(tags=["public-links"])
 
 
 def _require_owned_link(db: Session, user_id: str, token: str) -> PublicLink:
+    """Another tenant's link answers 404, matching the owned file/folder checks."""
     link = db.get(PublicLink, token)
-    if link is None:
+    if link is None or link.owner_id != user_id:
         raise ApiError(404, "Public link not found")
-    if link.owner_id != user_id:
-        raise ApiError(403, "Access denied")
     return link
 
 
