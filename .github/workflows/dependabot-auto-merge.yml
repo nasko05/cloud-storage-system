@@ -1,0 +1,46 @@
+# Auto-merge Dependabot upgrade PRs.
+#
+# Patch and minor updates are approved and queued for auto-merge; GitHub only
+# completes the merge after the PR satisfies branch protection (i.e. the CI
+# workflow's required checks pass). Major updates are left for a human review.
+#
+# Requires branch protection on `main` with the CI jobs as required status
+# checks and "Allow auto-merge" enabled in the repository settings — otherwise
+# `gh pr merge --auto` fails or merges immediately.
+name: Dependabot auto-merge
+
+on: pull_request
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  auto-merge:
+    runs-on: ubuntu-latest
+    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    steps:
+      - name: Fetch Dependabot metadata
+        id: metadata
+        uses: dependabot/fetch-metadata@v2
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Approve and enable auto-merge for patch/minor updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-patch' ||
+            steps.metadata.outputs.update-type == 'version-update:semver-minor'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr review "$PR_URL" --approve
+          gh pr merge "$PR_URL" --auto --squash
+
+      - name: Leave a note on major updates
+        if: steps.metadata.outputs.update-type == 'version-update:semver-major'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+        run: |
+          gh pr comment "$PR_URL" --body \
+            "Major version upgrade — not auto-merged, needs a human review."

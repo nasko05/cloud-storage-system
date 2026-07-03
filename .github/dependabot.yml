@@ -1,0 +1,63 @@
+# Dependabot version updates: opens PRs to upgrade dependencies across every
+# ecosystem in the repo. Patch/minor PRs are auto-merged once CI passes (see
+# .github/workflows/dependabot-auto-merge.yml); majors wait for a human.
+version: 2
+updates:
+  # Backend Python dependencies (backend/requirements*.txt)
+  - package-ecosystem: pip
+    directory: /backend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      # Batch patch/minor backend bumps into one PR to cut CI/merge churn.
+      python-minor-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - python
+
+  # Frontend npm dependencies (frontend/package.json)
+  - package-ecosystem: npm
+    directory: /frontend
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      npm-minor-patch:
+        update-types:
+          - minor
+          - patch
+    labels:
+      - dependencies
+      - javascript
+
+  # GitHub Actions used in .github/workflows
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    groups:
+      actions-all:
+        patterns:
+          - "*"
+    labels:
+      - dependencies
+      - github-actions
+
+  # Base images in the Dockerfile (node, python)
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+    labels:
+      - dependencies
+      - docker
