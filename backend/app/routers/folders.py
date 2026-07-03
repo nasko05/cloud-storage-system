@@ -48,14 +48,23 @@ def list_children(
         raise ApiError(404, "Folder not found")
 
     page_size, offset = page_params(limit, cursor, default=100)
-    fetch = page_size + 1  # one extra row tells us whether another page exists
+    rows = _children_window(db, user.id, folder_id, offset, page_size + 1)
 
-    # Folders sort before files in the combined stream. Page across both tables
-    # at the DB level (LIMIT/OFFSET) so we never load a whole folder in memory.
+    page_file_ids = [row.id for row in rows[:page_size] if isinstance(row, File)]
+    flags = derive_file_flags(db, page_file_ids)
+
+    return page_response(rows, page_size, offset, lambda row: _serialize_child(row, flags))
+
+
+def _children_window(db: Session, user_id: str, folder_id: str, offset: int, fetch: int) -> list:
+    """Fetch ``fetch`` rows of the folders-then-files stream starting at
+    ``offset``. Folders sort before files in the combined stream; paging runs
+    across both tables at the DB level (LIMIT/OFFSET) so a whole folder is
+    never loaded into memory."""
     folder_count = db.scalar(
         select(func.count())
         .select_from(Folder)
-        .where(Folder.owner_id == user.id, Folder.parent_folder_id == folder_id)
+        .where(Folder.owner_id == user_id, Folder.parent_folder_id == folder_id)
     ) or 0
 
     rows: list = []
@@ -63,7 +72,7 @@ def list_children(
         rows.extend(
             db.execute(
                 select(Folder)
-                .where(Folder.owner_id == user.id, Folder.parent_folder_id == folder_id)
+                .where(Folder.owner_id == user_id, Folder.parent_folder_id == folder_id)
                 .order_by(func.lower(Folder.name), Folder.id)
                 .offset(offset)
                 .limit(fetch)
@@ -76,17 +85,13 @@ def list_children(
         rows.extend(
             db.execute(
                 select(File)
-                .where(File.owner_id == user.id, File.parent_folder_id == folder_id)
+                .where(File.owner_id == user_id, File.parent_folder_id == folder_id)
                 .order_by(func.lower(File.filename), File.id)
                 .offset(file_offset)
                 .limit(remaining)
             ).scalars().all()
         )
-
-    page_file_ids = [row.id for row in rows[:page_size] if isinstance(row, File)]
-    flags = derive_file_flags(db, page_file_ids)
-
-    return page_response(rows, page_size, offset, lambda row: _serialize_child(row, flags))
+    return rows
 
 
 def _serialize_child(row: Folder | File, flags: dict[str, dict[str, bool]]) -> dict:

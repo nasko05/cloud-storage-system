@@ -2,13 +2,13 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, get_args
 
 if TYPE_CHECKING:
     from .deps import CurrentUser
 
-PrincipalType = str  # "email" | "user_sub"
-_VALID_TYPES = ("email", "user_sub")
+PrincipalType = Literal["email", "user_sub"]
+_VALID_TYPES: tuple[str, ...] = get_args(PrincipalType)
 
 
 def _infer_principal_type(value: str) -> PrincipalType:

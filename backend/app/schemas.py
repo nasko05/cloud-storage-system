@@ -98,7 +98,11 @@ class AgentChatRequest(BaseModel):
 
 class AgentOperation(BaseModel):
     """One step of an approved reorganization plan. Only the fields relevant to
-    ``tool`` are set; the apply endpoint validates the combination."""
+    ``tool`` are set; ``agent.apply._apply_one`` validates the combination.
+
+    Deliberately NOT a pydantic discriminated union: the imperative checks
+    answer 400 with a descriptive message, which is the wire contract clients
+    (and tests) rely on — a union would turn those into 422 validation errors."""
 
     tool: str
     # create_folder

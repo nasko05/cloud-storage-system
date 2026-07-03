@@ -143,6 +143,14 @@ def tool_definitions() -> list[dict[str, Any]]:
 # --- Read-only execution ----------------------------------------------------
 
 def execute_readonly(db: Session, owner_id: str, name: str, args: dict[str, Any]) -> str:
+    """Run one read-only tool call and return the model-facing result text.
+
+    Error contract: malformed calls (unknown tool, missing/invalid arguments,
+    unauthorized ids) raise :class:`ApiError`, which ``loop._run_readonly`` —
+    the single conversion point — renders as ``"Error: ..."``. Informative
+    outcomes ("no matches", "folder not found, try ...") are ordinary results
+    and are returned as plain strings for the model to reason about.
+    """
     if name == "list_tree":
         path = args.get("path")
         start_path = path if isinstance(path, str) and path.strip() else "/"
