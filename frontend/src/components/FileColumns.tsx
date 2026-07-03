@@ -5,7 +5,7 @@
 import React from 'react';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
-import { Chip, IconButton, Stack, Tooltip } from '@mui/material';
+import { Chip, IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import type {
   GridColDef,
   GridRenderCellParams,
@@ -26,11 +26,19 @@ function ChipCell({ label }: { label: string }): React.ReactElement {
 }
 
 function OutlinedChipCell({ label }: { label: string }): React.ReactElement {
-  return <Chip label={label} size="small" variant="outlined" />;
+  return (
+    <Typography variant="body2" color="text.secondary">
+      {label}
+    </Typography>
+  );
 }
 
 function DateChipCell({ date }: { date: string }): React.ReactElement {
-  return <Chip label={new Date(date).toLocaleString()} size="small" variant="outlined" />;
+  return (
+    <Typography variant="body2" color="text.secondary">
+      {new Date(date).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' })}
+    </Typography>
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +123,7 @@ export class ListColumnsFactory {
       {
         field: 'date',
         headerName: 'Date',
-        width: 140,
+        width: 150,
         type: 'dateTime',
         valueGetter: (params) => {
           if (params.row.type === 'file') return new Date(params.row.file.createdAt);
@@ -156,7 +164,7 @@ export class ListColumnsFactory {
                       e.stopPropagation();
                       input.onDownloadFolder(folder);
                     }}
-                    color="primary"
+                    sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }}
                   >
                     <DownloadRoundedIcon fontSize="small" />
                   </IconButton>
@@ -169,7 +177,7 @@ export class ListColumnsFactory {
                       e.stopPropagation();
                       input.onDeleteFolder(folder);
                     }}
-                    color="error"
+                    sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }}
                   >
                     <DeleteOutlineRoundedIcon fontSize="small" />
                   </IconButton>
