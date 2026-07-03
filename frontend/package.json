@@ -19,11 +19,11 @@
     "mammoth": "^1.12.0",
     "pdfjs-dist": "^5.7.284",
     "react": "^18.2.0",
-    "react-dom": "^18.2.0"
+    "react-dom": "^19.2.7"
   },
   "devDependencies": {
     "@types/react": "^18.3.19",
-    "@types/react-dom": "^18.3.5",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.7.3",
     "vite": "^6.0.0"
