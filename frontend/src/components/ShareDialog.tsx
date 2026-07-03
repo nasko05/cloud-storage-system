@@ -45,7 +45,6 @@ import {
   updatePublicLinkResult,
 } from '../service/driveService';
 
-export type { ShareTarget, SharePermission } from '../types/drive';
 
 export interface ShareDialogProps {
   target: ShareTarget;

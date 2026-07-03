@@ -9,7 +9,6 @@ import {
 } from '@mui/material';
 import type { RenameTarget } from '../types/drive';
 
-export type { RenameTarget } from '../types/drive';
 
 export interface RenameDialogProps {
   target: RenameTarget;

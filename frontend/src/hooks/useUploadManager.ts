@@ -66,7 +66,6 @@ interface UseUploadManagerArgs {
 
 interface UseUploadManagerResult {
   fileUploadInputRef: React.MutableRefObject<HTMLInputElement | null>;
-  folderUploadInputRef: React.MutableRefObject<HTMLInputElement | null>;
   uploadItems: UploadItemProgress[];
   uploadStats: UploadStats;
   isUploading: boolean;
@@ -74,9 +73,7 @@ interface UseUploadManagerResult {
   isUploadDragActive: boolean;
   setUploadSummary: React.Dispatch<React.SetStateAction<string>>;
   openFilePicker: () => void;
-  openFolderPicker: () => void;
   handleUploadFiles: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
-  handleUploadFolder: (event: ChangeEvent<HTMLInputElement>) => Promise<void>;
   uploadFromDataTransfer: (dataTransfer: DataTransfer, destinationPath?: string) => Promise<void>;
   handleCancelUpload: () => void;
 }
@@ -211,21 +208,12 @@ async function uploadCandidatesFromDrop(dataTransfer: DataTransfer): Promise<Upl
   return candidates;
 }
 
-function uploadCandidatesFromFileList(
-  fileList: FileList,
-  preserveRelativePath: boolean
-): UploadCandidate[] {
-  return Array.from(fileList).map((rawFile) => {
-    const relativePath =
-      preserveRelativePath && rawFile.webkitRelativePath
-        ? normalizeRelativePath(rawFile.webkitRelativePath)
-        : rawFile.name;
-    return {
-      id: createClientId('upload'),
-      file: rawFile,
-      relativePath
-    };
-  });
+function uploadCandidatesFromFileList(fileList: FileList): UploadCandidate[] {
+  return Array.from(fileList).map((rawFile) => ({
+    id: createClientId('upload'),
+    file: rawFile,
+    relativePath: rawFile.name
+  }));
 }
 
 export function useUploadManager({
@@ -240,16 +228,11 @@ export function useUploadManager({
   const [isUploadDragActive, setIsUploadDragActive] = useState(false);
 
   const fileUploadInputRef = useRef<HTMLInputElement | null>(null);
-  const folderUploadInputRef = useRef<HTMLInputElement | null>(null);
   const uploadAbortControllerRef = useRef<AbortController | null>(null);
   const uploadDragDepthRef = useRef(0);
 
   const openFilePicker = useCallback((): void => {
     fileUploadInputRef.current?.click();
-  }, []);
-
-  const openFolderPicker = useCallback((): void => {
-    folderUploadInputRef.current?.click();
   }, []);
 
   const updateUploadItem = useCallback(
@@ -438,20 +421,7 @@ export function useUploadManager({
       if (!selectedFiles || selectedFiles.length === 0) {
         return;
       }
-      const candidates = uploadCandidatesFromFileList(selectedFiles, false);
-      await startUploadBatch(candidates);
-      event.target.value = '';
-    },
-    [startUploadBatch]
-  );
-
-  const handleUploadFolder = useCallback(
-    async (event: ChangeEvent<HTMLInputElement>): Promise<void> => {
-      const selectedFiles = event.target.files;
-      if (!selectedFiles || selectedFiles.length === 0) {
-        return;
-      }
-      const candidates = uploadCandidatesFromFileList(selectedFiles, true);
+      const candidates = uploadCandidatesFromFileList(selectedFiles);
       await startUploadBatch(candidates);
       event.target.value = '';
     },
@@ -460,13 +430,6 @@ export function useUploadManager({
 
   const handleCancelUpload = useCallback((): void => {
     uploadAbortControllerRef.current?.abort();
-  }, []);
-
-  useEffect(() => {
-    const folderInput = folderUploadInputRef.current;
-    if (!folderInput) return;
-    folderInput.setAttribute('webkitdirectory', '');
-    folderInput.setAttribute('directory', '');
   }, []);
 
   useEffect(() => {
@@ -558,7 +521,6 @@ export function useUploadManager({
 
   return {
     fileUploadInputRef,
-    folderUploadInputRef,
     uploadItems,
     uploadStats,
     isUploading,
@@ -566,9 +528,7 @@ export function useUploadManager({
     isUploadDragActive,
     setUploadSummary,
     openFilePicker,
-    openFolderPicker,
     handleUploadFiles,
-    handleUploadFolder,
     uploadFromDataTransfer,
     handleCancelUpload
   };

@@ -51,11 +51,10 @@ import {
   renameFolderResult,
   shareFileResult
 } from './service/driveService';
-import type { DriveFolder } from './components/Folder';
+import type { DriveFolder } from './types/drive';
 import type {
   DriveFile,
   DriveListRow,
-  FileGridRow,
   ContextMenuTarget,
   ContextMenuPosition,
   RenameTarget,
@@ -64,8 +63,7 @@ import type {
   SharePermission,
   SharedFile
 } from './types/drive';
-import { toFileGridRow } from './types/drive';
-import { FileColumnsFactory, ListColumnsFactory } from './components/FileColumns';
+import { ListColumnsFactory } from './components/FileColumns';
 import { GridLayout, type GridSize } from './components/GridLayout';
 import { ListLayout } from './components/ListLayout';
 import { ContextMenu } from './components/ContextMenu';
@@ -630,19 +628,6 @@ function App(): JSX.Element {
       createdAt: ''
     } as DriveFile);
   };
-
-  const rows: FileGridRow[] = useMemo(
-    () => files.map((file) => toFileGridRow(file)),
-    [files]
-  );
-
-  const columns = useMemo(
-    () => FileColumnsFactory.create({
-      onDownload: handleDownload,
-      onDelete: handleDelete
-    }),
-    [handleDownload, handleDelete]
-  );
 
   const listRows: DriveListRow[] = useMemo(() => {
     const folderRows: DriveListRow[] = folders.map((f) => ({

@@ -5,9 +5,6 @@ import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
 import { IconButton, Stack, Tooltip, Typography } from '@mui/material';
 import type { DriveFolder } from '../types/drive';
 
-// Re-export so existing `import from './Folder'` still resolves
-export type { DriveFolder } from '../types/drive';
-
 export interface FolderItemProps {
   folder: DriveFolder;
 }
