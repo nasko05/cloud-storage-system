@@ -49,12 +49,12 @@ export function FileActions({ file, onDownload, onDelete }: FileActionsProps): R
   return (
     <Stack direction="row" spacing={0.5}>
       <Tooltip title="Download">
-        <IconButton size="small" color="primary" onClick={() => onDownload(file)}>
+        <IconButton size="small" sx={{ color: 'text.secondary', '&:hover': { color: 'primary.main' } }} onClick={() => onDownload(file)}>
           <DownloadRoundedIcon fontSize="small" />
         </IconButton>
       </Tooltip>
       <Tooltip title="Delete">
-        <IconButton size="small" color="error" onClick={() => onDelete(file)}>
+        <IconButton size="small" sx={{ color: 'text.secondary', '&:hover': { color: 'error.main' } }} onClick={() => onDelete(file)}>
           <DeleteOutlineRoundedIcon fontSize="small" />
         </IconButton>
       </Tooltip>

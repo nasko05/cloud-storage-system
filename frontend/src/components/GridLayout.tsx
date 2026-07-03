@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
 import RadioButtonUncheckedRoundedIcon from '@mui/icons-material/RadioButtonUncheckedRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import {
@@ -12,6 +13,7 @@ import {
   Tooltip,
   Typography
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import { FileActions } from './File';
 import type { DriveFile, DriveFolder } from '../types/drive';
 import { formatFileSize } from '../types/drive';
@@ -91,16 +93,29 @@ export function GridLayout({
 
   if (files.length === 0 && folders.length === 0) {
     return (
-      <Stack alignItems="center" justifyContent="center" sx={{ py: 4 }}>
-        <Typography variant="body1" color="text.secondary">
-          No files or folders yet. Upload something or create a folder.
+      <Stack alignItems="center" justifyContent="center" spacing={1.25} sx={{ py: 10 }}>
+        <Box
+          sx={{
+            width: 64,
+            height: 64,
+            borderRadius: '20px',
+            display: 'grid',
+            placeItems: 'center',
+            bgcolor: (t) => alpha(t.palette.primary.main, 0.08)
+          }}
+        >
+          <CloudUploadRoundedIcon sx={{ fontSize: 30, color: 'primary.main' }} />
+        </Box>
+        <Typography fontWeight={600}>This folder is empty</Typography>
+        <Typography variant="body2" color="text.secondary">
+          Drag files anywhere on the page, or use the Upload button.
         </Typography>
       </Stack>
     );
   }
 
   const iconProps = {
-    sx: { fontSize: config.iconFontSize, color: 'action.active', mb: 1 },
+    sx: { fontSize: config.iconFontSize, color: '#8B93A9', mb: 1 },
     'aria-hidden': true
   } as const;
 
@@ -179,14 +194,22 @@ export function GridLayout({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 0,
+            borderRadius: '14px',
             position: 'relative',
+            borderColor: 'divider',
+            transition: 'box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease',
+            '&:hover': {
+              boxShadow: '0 8px 24px rgba(18, 22, 39, 0.1)',
+              borderColor: 'transparent',
+              transform: 'translateY(-2px)'
+            },
             outline: dragOverId === folder.folderId ? '2px solid' : undefined,
             outlineColor: dragOverId === folder.folderId ? 'primary.main' : undefined,
             bgcolor: dragOverId === folder.folderId ? 'action.hover' : undefined,
             ...(isSelected(folder.folderId) && {
               borderColor: 'primary.main',
-              bgcolor: 'primary.50'
+              bgcolor: (t) => alpha(t.palette.primary.main, 0.06),
+              '&:hover': { borderColor: 'primary.main' }
             })
           }}
         >
@@ -264,9 +287,22 @@ export function GridLayout({
           {onDownloadFolder && (
             <Stack
               direction="row"
-              justifyContent="center"
-              spacing={0.5}
-              sx={{ py: 1, px: 1, borderTop: 1, borderColor: 'divider' }}
+              spacing={0.25}
+              className="card-actions"
+              sx={{
+                position: 'absolute',
+                top: 6,
+                right: 6,
+                zIndex: 1,
+                borderRadius: '10px',
+                bgcolor: 'rgba(255, 255, 255, 0.92)',
+                backdropFilter: 'blur(4px)',
+                boxShadow: '0 2px 8px rgba(18, 22, 39, 0.14)',
+                px: 0.25,
+                opacity: 0,
+                transition: 'opacity 0.15s',
+                '.MuiCard-root:hover &, &:focus-within': { opacity: 1 }
+              }}
             >
               <FolderActions
                 folder={folder}
@@ -292,11 +328,19 @@ export function GridLayout({
             display: 'flex',
             flexDirection: 'column',
             alignItems: 'stretch',
-            borderRadius: 0,
+            borderRadius: '14px',
             position: 'relative',
+            borderColor: 'divider',
+            transition: 'box-shadow 0.18s ease, border-color 0.18s ease, transform 0.18s ease',
+            '&:hover': {
+              boxShadow: '0 8px 24px rgba(18, 22, 39, 0.1)',
+              borderColor: 'transparent',
+              transform: 'translateY(-2px)'
+            },
             ...(isSelected(file.fileId) && {
               borderColor: 'primary.main',
-              bgcolor: 'primary.50'
+              bgcolor: (t) => alpha(t.palette.primary.main, 0.06),
+              '&:hover': { borderColor: 'primary.main' }
             })
           }}
         >
@@ -381,9 +425,22 @@ export function GridLayout({
           </CardActionArea>
           <Stack
             direction="row"
-            justifyContent="center"
-            spacing={0.5}
-            sx={{ py: 1, px: 1, borderTop: 1, borderColor: 'divider' }}
+            spacing={0.25}
+            className="card-actions"
+            sx={{
+              position: 'absolute',
+              top: 6,
+              right: 6,
+              zIndex: 1,
+              borderRadius: '10px',
+              bgcolor: 'rgba(255, 255, 255, 0.92)',
+              backdropFilter: 'blur(4px)',
+              boxShadow: '0 2px 8px rgba(18, 22, 39, 0.14)',
+              px: 0.25,
+              opacity: 0,
+              transition: 'opacity 0.15s',
+              '.MuiCard-root:hover &, &:focus-within': { opacity: 1 }
+            }}
           >
             <FileActions
               file={file}

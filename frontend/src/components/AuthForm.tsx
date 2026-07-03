@@ -1,4 +1,5 @@
 import React, { FormEvent, useState } from 'react';
+import CloudRoundedIcon from '@mui/icons-material/CloudRounded';
 import {
   Alert,
   Box,
@@ -92,13 +93,33 @@ export function AuthForm({ onAuthenticated }: AuthFormProps): React.ReactElement
   };
 
   return (
-    <Card sx={{ maxWidth: 460, mx: 'auto', mt: 12, borderRadius: 3 }}>
+    <Card
+      elevation={0}
+      sx={{
+        maxWidth: 440,
+        mx: 'auto',
+        borderRadius: '20px',
+        boxShadow: '0 2px 6px rgba(18, 22, 39, 0.06), 0 24px 60px rgba(18, 22, 39, 0.12)'
+      }}
+    >
       <CardContent sx={{ p: 4 }}>
         <Stack spacing={2.5}>
-          <Typography variant="h4" fontWeight={700}>
-            Personal Drive
-          </Typography>
-          <Typography variant="body2" color="text.secondary">
+          <Box
+            sx={{
+              width: 44,
+              height: 44,
+              borderRadius: '13px',
+              display: 'grid',
+              placeItems: 'center',
+              color: '#fff',
+              background: 'linear-gradient(135deg, #818CF8 0%, #4F46E5 65%, #4338CA 100%)',
+              boxShadow: '0 6px 16px rgba(79, 70, 229, 0.35)'
+            }}
+          >
+            <CloudRoundedIcon sx={{ fontSize: 26 }} />
+          </Box>
+          <Typography variant="h5">Personal Drive</Typography>
+          <Typography variant="body2" color="text.secondary" sx={{ mt: '-6px !important' }}>
             {authMode === 'confirm'
               ? `Enter the verification code sent to ${pendingEmail}`
               : 'Authenticate to manage your files'}

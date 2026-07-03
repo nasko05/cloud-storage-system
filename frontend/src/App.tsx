@@ -1,31 +1,33 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Alert,
+  Avatar,
   Box,
+  Breadcrumbs,
   Button,
   Chip,
   CircularProgress,
   CssBaseline,
-  Divider,
   Dialog,
   DialogActions,
   DialogContent,
   DialogTitle,
+  IconButton,
+  Link,
   List,
   ListItem,
+  ListItemButton,
   ListItemIcon,
   ListItemText,
   Paper,
   Stack,
-  Tab,
-  Tabs,
   TextField,
   ToggleButton,
   ToggleButtonGroup,
-  Toolbar,
   Tooltip,
   Typography
 } from '@mui/material';
+import { alpha } from '@mui/material/styles';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
@@ -34,6 +36,9 @@ import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import KeyRoundedIcon from '@mui/icons-material/KeyRounded';
 import FolderSharedRoundedIcon from '@mui/icons-material/FolderSharedRounded';
 import FolderRoundedIcon from '@mui/icons-material/FolderRounded';
+import CloudRoundedIcon from '@mui/icons-material/CloudRounded';
+import CloudUploadRoundedIcon from '@mui/icons-material/CloudUploadRounded';
+import CreateNewFolderRoundedIcon from '@mui/icons-material/CreateNewFolderRounded';
 import InsertDriveFileRoundedIcon from '@mui/icons-material/InsertDriveFileRounded';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import AutoStoriesRoundedIcon from '@mui/icons-material/AutoStoriesRounded';
@@ -73,7 +78,6 @@ import { MoveDialog } from './components/MoveDialog';
 import { ShareDialog } from './components/ShareDialog';
 import { PublicDownloadPage } from './components/PublicDownloadPage';
 import { AuthForm } from './components/AuthForm';
-import { UploadControlsPanel } from './components/UploadControlsPanel';
 import { UploadProgressPanel } from './components/UploadProgressPanel';
 import { QuickAccessPanel } from './components/QuickAccessPanel';
 import { UploadDropOverlay } from './components/UploadDropOverlay';
@@ -117,11 +121,6 @@ function isEditableTarget(target: EventTarget | null): boolean {
     tagName === 'select' ||
     target.isContentEditable
   );
-}
-
-function getParentPath(path: string): string {
-  const slashIndex = path.lastIndexOf('/');
-  return slashIndex === -1 ? '' : path.slice(0, slashIndex);
 }
 
 function sortFoldersByName(values: DriveFolder[]): DriveFolder[] {
@@ -661,8 +660,6 @@ function App(): JSX.Element {
     [handleDownload, handleDelete, handleDownloadFolder, handleDeleteFolder]
   );
 
-  const currentFolderParent = useMemo(() => getParentPath(currentPath), [currentPath]);
-
   const handleFolderSelection = useCallback((path: string): void => {
     setDriveTab('my-drive');
     setCurrentPath(path);
@@ -704,19 +701,13 @@ function App(): JSX.Element {
           <Box key={folder.folderId}>
             <Stack direction="row" alignItems="center" spacing={0.5} sx={{ pl: 1 + depth * 2 }}>
               {hasKnownChildren ? (
-                <Button
+                <IconButton
                   size="small"
                   onClick={(event) => {
                     event.stopPropagation();
                     handleFolderExpandToggle(folder.path);
                   }}
-                  sx={{
-                    minWidth: 26,
-                    width: 26,
-                    height: 26,
-                    p: 0,
-                    borderRadius: 0
-                  }}
+                  sx={{ width: 26, height: 26, p: 0, color: 'text.secondary' }}
                   aria-label={isExpanded ? 'Collapse folder' : 'Expand folder'}
                 >
                   {isExpanded ? (
@@ -724,9 +715,9 @@ function App(): JSX.Element {
                   ) : (
                     <ChevronRightRoundedIcon sx={{ fontSize: 18 }} />
                   )}
-                </Button>
+                </IconButton>
               ) : (
-                <Box sx={{ width: 26, height: 26 }} />
+                <Box sx={{ width: 26, height: 26, flexShrink: 0 }} />
               )}
               <Button
                 fullWidth
@@ -735,13 +726,11 @@ function App(): JSX.Element {
                   handleFolderSelection(folder.path);
                   setExpandedFolders((prev) => new Set(prev).add(folder.path));
                 }}
-                startIcon={<FolderRoundedIcon sx={{ fontSize: 19, color: 'warning.dark' }} />}
+                startIcon={<FolderRoundedIcon sx={{ fontSize: 19, color: '#818CF8' }} />}
                 sx={{
                   justifyContent: 'flex-start',
-                  textTransform: 'none',
-                  py: 0.5,
-                  px: 1,
-                  borderRadius: 0,
+                  py: 0.6,
+                  px: 1.25,
                   color: 'text.primary',
                   backgroundColor: isCurrent ? 'action.selected' : 'transparent',
                   '&:hover': {
@@ -799,68 +788,69 @@ function App(): JSX.Element {
       <CssBaseline />
       <Box
         sx={{
-          minHeight: '100vh',
+          height: '100vh',
           display: 'flex',
           flexDirection: 'column',
           gap: 0
         }}
       >
-        <Paper
-          elevation={0}
+        <Box
+          component="header"
           sx={{
-            borderRadius: 0,
-            overflow: 'hidden',
-            borderBottom: 1,
-            borderColor: 'divider'
+            px: { xs: 2, md: 3 },
+            py: 1.75,
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            flexShrink: 0
           }}
         >
-          <Toolbar
-            variant="dense"
-            sx={{
-              minHeight: { xs: 50, sm: 54 },
-              px: { xs: 1.75, sm: 2.5 },
-              justifyContent: 'space-between'
-            }}
-          >
-            <Typography variant="h6" fontWeight={700}>
-              Personal Drive
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1 }}>
-              {config.personalAreaUrl && (
-                <Button
-                  color="inherit"
-                  variant="outlined"
-                  size="small"
-                  href={config.personalAreaUrl}
-                  startIcon={<AutoStoriesRoundedIcon />}
-                  title="Open My Space — your notes editor"
-                >
-                  My Space
-                </Button>
-              )}
-              {passkeySupported() && (
-                <Button
-                  color="inherit"
-                  variant="outlined"
-                  size="small"
-                  onClick={handleAddPasskey}
-                  startIcon={<KeyRoundedIcon />}
-                >
-                  Add passkey
-                </Button>
-              )}
+          <Stack direction="row" spacing={1.5} alignItems="center">
+            <Box
+              sx={{
+                width: 36,
+                height: 36,
+                borderRadius: '11px',
+                display: 'grid',
+                placeItems: 'center',
+                color: '#fff',
+                background: 'linear-gradient(135deg, #818CF8 0%, #4F46E5 65%, #4338CA 100%)',
+                boxShadow: '0 6px 16px rgba(79, 70, 229, 0.35)'
+              }}
+            >
+              <CloudRoundedIcon sx={{ fontSize: 21 }} />
+            </Box>
+            <Typography variant="h6">Personal Drive</Typography>
+          </Stack>
+          <Stack direction="row" spacing={0.75} alignItems="center">
+            {config.personalAreaUrl && (
               <Button
                 color="inherit"
-                variant="outlined"
                 size="small"
-                onClick={handleLogout}
-                startIcon={<LogoutRoundedIcon />}
+                href={config.personalAreaUrl}
+                startIcon={<AutoStoriesRoundedIcon />}
+                title="Open My Space — your notes editor"
               >
-                Logout
+                My Space
               </Button>
-            </Box>
-          </Toolbar>
-        </Paper>
+            )}
+            {passkeySupported() && (
+              <Tooltip title="Add a passkey to this account">
+                <IconButton size="small" onClick={handleAddPasskey}>
+                  <KeyRoundedIcon fontSize="small" />
+                </IconButton>
+              </Tooltip>
+            )}
+            <Button
+              color="inherit"
+              size="small"
+              onClick={handleLogout}
+              startIcon={<LogoutRoundedIcon />}
+            >
+              Log out
+            </Button>
+          </Stack>
+        </Box>
 
         <Box
           sx={{
@@ -868,63 +858,74 @@ function App(): JSX.Element {
             minHeight: 0,
             display: 'flex',
             flexDirection: { xs: 'column', md: 'row' },
-            gap: 1,
-            px: { xs: 0.5, sm: 1, md: 1.25 },
-            py: { xs: 0.5, sm: 0.75 }
+            gap: { xs: 1.5, md: 2.5 },
+            px: { xs: 1.5, md: 3 },
+            pb: { xs: 1.5, md: 2.5 }
           }}
         >
-          <Paper
-            elevation={0}
+          <Box
             sx={{
-              borderRadius: 0,
-              border: 1,
-              borderColor: 'divider',
-              width: { xs: '100%', md: 320 },
+              width: { xs: '100%', md: 256 },
               flexShrink: 0,
-              overflow: 'hidden',
               display: 'flex',
               flexDirection: 'column',
-              maxHeight: { md: 'calc(100vh - 120px)' }
+              minHeight: 0,
+              maxHeight: { md: '100%' }
             }}
           >
-            <Tabs
-              value={driveTab}
-              onChange={(_, v) => setDriveTab(v as DriveTab)}
-              variant="fullWidth"
-              sx={{ px: 0 }}
-            >
-              <Tab
-                icon={<FolderRoundedIcon />}
-                iconPosition="start"
-                label="My files"
-                value="my-drive"
-                sx={{ textTransform: 'none', minHeight: 48 }}
-              />
-              <Tab
-                icon={<FolderSharedRoundedIcon />}
-                iconPosition="start"
-                label="Shared with me"
-                value="shared-with-me"
-                sx={{ textTransform: 'none', minHeight: 48 }}
-              />
-            </Tabs>
-            <Divider />
-            {driveTab === 'my-drive' ? (
-              <Stack spacing={0.75} sx={{ p: 0.75, flex: 1, minHeight: 0 }}>
-                <Typography variant="caption" color="text.secondary" sx={{ px: 1, pt: 0.5 }}>
-                  Folder tree
+            <List dense disablePadding sx={{ mb: 1 }}>
+              <ListItemButton
+                selected={driveTab === 'my-drive'}
+                onClick={() => setDriveTab('my-drive')}
+                sx={{ mb: 0.5, py: 1 }}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <FolderRoundedIcon
+                    sx={{ fontSize: 21, color: driveTab === 'my-drive' ? 'primary.main' : 'text.secondary' }}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  primary="My files"
+                  primaryTypographyProps={{ fontWeight: 600, variant: 'body2' }}
+                />
+              </ListItemButton>
+              <ListItemButton
+                selected={driveTab === 'shared-with-me'}
+                onClick={() => setDriveTab('shared-with-me')}
+                sx={{ py: 1 }}
+              >
+                <ListItemIcon sx={{ minWidth: 36 }}>
+                  <FolderSharedRoundedIcon
+                    sx={{
+                      fontSize: 21,
+                      color: driveTab === 'shared-with-me' ? 'primary.main' : 'text.secondary'
+                    }}
+                  />
+                </ListItemIcon>
+                <ListItemText
+                  primary="Shared with me"
+                  primaryTypographyProps={{ fontWeight: 600, variant: 'body2' }}
+                />
+              </ListItemButton>
+            </List>
+
+            {driveTab === 'my-drive' && (
+              <>
+                <Typography
+                  variant="overline"
+                  sx={{ px: 1.5, color: 'text.secondary', letterSpacing: '0.08em', lineHeight: 2.2 }}
+                >
+                  Folders
                 </Typography>
                 <Button
                   fullWidth
                   size="small"
                   onClick={() => handleFolderSelection('')}
-                  startIcon={<FolderRoundedIcon sx={{ fontSize: 19, color: 'warning.dark' }} />}
+                  startIcon={<FolderRoundedIcon sx={{ fontSize: 19, color: '#818CF8' }} />}
                   sx={{
                     justifyContent: 'flex-start',
-                    textTransform: 'none',
-                    py: 0.5,
-                    px: 1,
-                    borderRadius: 0,
+                    py: 0.6,
+                    px: 1.5,
                     color: 'text.primary',
                     backgroundColor: currentPath === '' ? 'action.selected' : 'transparent',
                     '&:hover': {
@@ -933,33 +934,17 @@ function App(): JSX.Element {
                   }}
                 >
                   <Typography noWrap variant="body2" fontWeight={currentPath === '' ? 600 : 500}>
-                    Root
+                    All files
                   </Typography>
                 </Button>
                 <Box sx={{ flex: 1, minHeight: 0, overflowY: 'auto', pr: 0.5 }}>
                   {renderFolderTree('', 0)}
                 </Box>
-              </Stack>
-            ) : (
-              <Stack
-                spacing={1}
-                sx={{
-                  p: 1,
-                  flex: 1,
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  textAlign: 'center'
-                }}
-              >
-                <FolderSharedRoundedIcon sx={{ color: 'text.disabled', fontSize: 38 }} />
-                <Typography variant="body2" color="text.secondary">
-                  Shared files are shown in the center panel.
-                </Typography>
-              </Stack>
+              </>
             )}
-          </Paper>
+          </Box>
 
-          <Stack spacing={1} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
+          <Stack spacing={1.5} sx={{ flex: 1, minWidth: 0, minHeight: 0 }}>
             {error && <Alert severity="error">{error}</Alert>}
             {uploadSummary && (
               <Alert severity="info" onClose={() => setUploadSummary('')}>
@@ -968,14 +953,14 @@ function App(): JSX.Element {
             )}
 
             {driveTab === 'my-drive' && (
-              <UploadControlsPanel
-                fileUploadInputRef={fileUploadInputRef}
-                loading={loading}
-                isUploading={isUploading}
-                onUploadFilesChange={handleUploadFiles}
-                onOpenFilePicker={openFilePicker}
-                onCreateFolder={handleCreateFolderOpen}
-                onCancelUpload={handleCancelUpload}
+              <input
+                ref={fileUploadInputRef}
+                type="file"
+                hidden
+                multiple
+                onChange={(event) => {
+                  void handleUploadFiles(event);
+                }}
               />
             )}
 
@@ -1003,10 +988,9 @@ function App(): JSX.Element {
                 key="my-drive"
                 elevation={0}
                 sx={{
-                  borderRadius: 0,
-                  border: 1,
-                  borderColor: 'divider',
-                  p: 1,
+                  borderRadius: '16px',
+                  boxShadow: '0 1px 3px rgba(18, 22, 39, 0.06), 0 10px 30px rgba(18, 22, 39, 0.05)',
+                  p: { xs: 1.5, md: 2.5 },
                   display: 'flex',
                   flexDirection: 'column',
                   minHeight: 0,
@@ -1017,25 +1001,83 @@ function App(): JSX.Element {
                   direction={{ xs: 'column', sm: 'row' }}
                   justifyContent="space-between"
                   alignItems={{ xs: 'flex-start', sm: 'center' }}
-                  spacing={1}
-                  sx={{ mb: 1.25 }}
+                  spacing={1.5}
+                  sx={{ mb: 2 }}
                 >
-                  <Stack direction="row" spacing={1} alignItems="center" flexWrap="wrap">
-                    <Typography variant="body2" color="text.secondary">
-                      Path:
-                    </Typography>
-                    <Button
-                      size="small"
-                      onClick={() => handleFolderSelection(currentFolderParent)}
-                      disabled={!currentPath}
-                    >
-                      Up
-                    </Button>
-                    <Typography variant="body2" color="text.secondary" noWrap>
-                      {currentPath || '/'}
-                    </Typography>
-                  </Stack>
+                  <Breadcrumbs
+                    separator={<ChevronRightRoundedIcon sx={{ fontSize: 16, color: 'text.disabled' }} />}
+                    aria-label="Current folder path"
+                    sx={{ minWidth: 0 }}
+                  >
+                    {currentPath ? (
+                      <Link
+                        component="button"
+                        type="button"
+                        underline="hover"
+                        color="text.secondary"
+                        onClick={() => handleFolderSelection('')}
+                        sx={{ fontWeight: 500, fontSize: '0.95rem' }}
+                      >
+                        My files
+                      </Link>
+                    ) : (
+                      <Typography fontWeight={600} fontSize="0.95rem">
+                        My files
+                      </Typography>
+                    )}
+                    {currentPath
+                      .split('/')
+                      .filter(Boolean)
+                      .map((segment, index, segments) => {
+                        const target = segments.slice(0, index + 1).join('/');
+                        const isLast = index === segments.length - 1;
+                        return isLast ? (
+                          <Typography key={target} fontWeight={600} fontSize="0.95rem" noWrap>
+                            {segment}
+                          </Typography>
+                        ) : (
+                          <Link
+                            key={target}
+                            component="button"
+                            type="button"
+                            underline="hover"
+                            color="text.secondary"
+                            onClick={() => handleFolderSelection(target)}
+                            sx={{ fontWeight: 500, fontSize: '0.95rem' }}
+                          >
+                            {segment}
+                          </Link>
+                        );
+                      })}
+                  </Breadcrumbs>
                   <Stack direction="row" justifyContent="flex-end" alignItems="center" spacing={1}>
+                    {isUploading && (
+                      <Button size="small" color="error" onClick={handleCancelUpload}>
+                        Cancel upload
+                      </Button>
+                    )}
+                    <Tooltip title="New folder (N)">
+                      <Button
+                        variant="outlined"
+                        size="small"
+                        startIcon={<CreateNewFolderRoundedIcon />}
+                        onClick={handleCreateFolderOpen}
+                        disabled={loading || isUploading}
+                      >
+                        New folder
+                      </Button>
+                    </Tooltip>
+                    <Tooltip title="Upload files (U)">
+                      <Button
+                        variant="contained"
+                        size="small"
+                        startIcon={<CloudUploadRoundedIcon />}
+                        disabled={loading || isUploading}
+                        onClick={openFilePicker}
+                      >
+                        Upload
+                      </Button>
+                    </Tooltip>
                     <ToggleButtonGroup
                       value={viewMode}
                       exclusive
@@ -1059,13 +1101,13 @@ function App(): JSX.Element {
                         aria-label="Grid size"
                       >
                         <ToggleButton value="small" aria-label="Small grid">
-                          <GridViewRoundedIcon sx={{ fontSize: 18 }} />
+                          <GridViewRoundedIcon sx={{ fontSize: 16 }} />
                         </ToggleButton>
                         <ToggleButton value="medium" aria-label="Medium grid">
-                          <GridViewRoundedIcon sx={{ fontSize: 24 }} />
+                          <GridViewRoundedIcon sx={{ fontSize: 20 }} />
                         </ToggleButton>
                         <ToggleButton value="large" aria-label="Large grid">
-                          <GridViewRoundedIcon sx={{ fontSize: 30 }} />
+                          <GridViewRoundedIcon sx={{ fontSize: 24 }} />
                         </ToggleButton>
                       </ToggleButtonGroup>
                     )}
@@ -1112,27 +1154,41 @@ function App(): JSX.Element {
                 key="shared-with-me"
                 elevation={0}
                 sx={{
-                  borderRadius: 0,
-                  border: 1,
-                  borderColor: 'divider',
-                  p: 1,
+                  borderRadius: '16px',
+                  boxShadow: '0 1px 3px rgba(18, 22, 39, 0.06), 0 10px 30px rgba(18, 22, 39, 0.05)',
+                  p: { xs: 1.5, md: 2.5 },
                   display: 'flex',
                   flexDirection: 'column',
                   minHeight: 0,
                   flex: 1
                 }}
               >
+                <Typography variant="subtitle1" sx={{ mb: 1.5 }}>
+                  Shared with me
+                </Typography>
                 {sharedLoading ? (
                   <Box sx={{ display: 'flex', justifyContent: 'center', py: 4 }}>
                     <CircularProgress />
                   </Box>
                 ) : sharedFiles.length === 0 ? (
-                  <Box sx={{ textAlign: 'center', py: 4 }}>
-                    <FolderSharedRoundedIcon sx={{ fontSize: 48, color: 'text.disabled', mb: 1 }} />
-                    <Typography color="text.secondary">
-                      No files have been shared with you yet.
+                  <Stack alignItems="center" spacing={1} sx={{ py: 8 }}>
+                    <Box
+                      sx={{
+                        width: 64,
+                        height: 64,
+                        borderRadius: '20px',
+                        display: 'grid',
+                        placeItems: 'center',
+                        bgcolor: (t) => alpha(t.palette.primary.main, 0.08)
+                      }}
+                    >
+                      <FolderSharedRoundedIcon sx={{ fontSize: 32, color: 'primary.main' }} />
+                    </Box>
+                    <Typography fontWeight={600}>Nothing shared yet</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      Files that others share with you will show up here.
                     </Typography>
-                  </Box>
+                  </Stack>
                 ) : (
                   <Box sx={{ flex: 1, minHeight: { xs: 320, md: 0 }, overflowY: 'auto', pr: 0.25 }}>
                     <List disablePadding>
@@ -1142,7 +1198,7 @@ function App(): JSX.Element {
                           secondaryAction={
                             sf.permission === 'download' || sf.permission === 'edit' ? (
                               <Tooltip title="Download">
-                                <Button
+                                <IconButton
                                   size="small"
                                   onClick={() =>
                                     void handleDownload({
@@ -1154,34 +1210,57 @@ function App(): JSX.Element {
                                   }
                                 >
                                   <DownloadRoundedIcon fontSize="small" />
-                                </Button>
+                                </IconButton>
                               </Tooltip>
                             ) : null
                           }
                           sx={{
-                            borderBottom: '1px solid',
-                            borderColor: 'divider',
-                            '&:last-child': { borderBottom: 'none' }
+                            borderRadius: '12px',
+                            mb: 0.5,
+                            transition: 'background-color 0.15s',
+                            '&:hover': { bgcolor: 'action.hover' }
                           }}
                         >
-                          <ListItemIcon>
-                            <InsertDriveFileRoundedIcon color="action" />
+                          <ListItemIcon sx={{ minWidth: 52 }}>
+                            <Avatar
+                              sx={{
+                                width: 38,
+                                height: 38,
+                                bgcolor: (t) => alpha(t.palette.primary.main, 0.1),
+                                color: 'primary.main',
+                                fontWeight: 700,
+                                fontSize: '0.95rem'
+                              }}
+                            >
+                              {(sf.sharedByEmail || '?').charAt(0).toUpperCase()}
+                            </Avatar>
                           </ListItemIcon>
                           <ListItemText
-                            primary={sf.filename}
+                            primary={
+                              <Stack component="span" direction="row" spacing={0.75} alignItems="center">
+                                <InsertDriveFileRoundedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
+                                <Typography component="span" fontWeight={600} noWrap>
+                                  {sf.filename}
+                                </Typography>
+                              </Stack>
+                            }
                             secondary={
                               <Stack component="span" direction="row" spacing={1} alignItems="center" sx={{ mt: 0.5 }}>
                                 <Typography component="span" variant="caption" color="text.secondary">
-                                  From: {sf.sharedByEmail}
+                                  From {sf.sharedByEmail}
                                 </Typography>
                                 <Chip
                                   label={sf.permission === 'read' ? 'View' : sf.permission === 'download' ? 'Download' : 'Edit'}
                                   size="small"
-                                  variant="outlined"
-                                  sx={{ height: 20, fontSize: '0.7rem' }}
+                                  sx={{
+                                    height: 20,
+                                    fontSize: '0.7rem',
+                                    bgcolor: (t) => alpha(t.palette.primary.main, 0.08),
+                                    color: 'primary.dark'
+                                  }}
                                 />
                                 <Typography component="span" variant="caption" color="text.secondary">
-                                  Expires: {formatDate(sf.expiresAt)}
+                                  Expires {formatDate(sf.expiresAt)}
                                 </Typography>
                               </Stack>
                             }

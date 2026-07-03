@@ -106,7 +106,19 @@ export function ListLayout({
         pageSizeOptions={[5, 10, 20]}
         sx={{
           height: '100%',
-          borderRadius: 0,
+          border: 'none',
+          '& .MuiDataGrid-columnHeaders': {
+            bgcolor: 'transparent',
+            borderBottom: '1px solid',
+            borderColor: 'divider'
+          },
+          '& .MuiDataGrid-columnHeaderTitle': {
+            fontWeight: 600,
+            color: 'text.secondary',
+            fontSize: '0.8rem'
+          },
+          '& .MuiDataGrid-cell': { borderColor: 'divider' },
+          '& .MuiDataGrid-footerContainer': { borderColor: 'divider' },
           '& .MuiDataGrid-row.Mui-selected': {
             bgcolor: 'transparent'
           },
