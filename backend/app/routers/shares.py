@@ -87,7 +87,7 @@ def list_inbound_shares(
         .limit(page_size + 1)
     ).all()
 
-    return page_response(rows, page_size, offset, lambda row: _serialize_inbound(*row))
+    return page_response(rows, page_size, offset, lambda row: _serialize_inbound(row[0], row[1]))
 
 
 @router.get("/v2/files/{file_id}/shares")

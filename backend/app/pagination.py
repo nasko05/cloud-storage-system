@@ -8,7 +8,10 @@ integer offset, which is sufficient for the stable orderings used here.
 from __future__ import annotations
 
 import base64
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
+from typing import TypeVar
+
+T = TypeVar("T")
 
 
 def normalize_limit(raw: object, default: int = 100, max_value: int = 200) -> int:
@@ -40,7 +43,7 @@ def page_params(limit: object, cursor: str | None, *, default: int) -> tuple[int
     return normalize_limit(limit, default=default, max_value=200), decode_cursor(cursor)
 
 
-def page_response(rows: list, page_size: int, offset: int, serialize: Callable[[object], dict]) -> dict:
+def page_response(rows: Sequence[T], page_size: int, offset: int, serialize: Callable[[T], dict]) -> dict:
     """Assemble the ``{items, nextCursor}`` page from a ``page_size + 1`` fetch:
     the extra row only signals that another page exists."""
     has_more = len(rows) > page_size

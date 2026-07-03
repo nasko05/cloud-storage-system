@@ -56,7 +56,9 @@ def list_children(
     return page_response(rows, page_size, offset, lambda row: _serialize_child(row, flags))
 
 
-def _children_window(db: Session, user_id: str, folder_id: str, offset: int, fetch: int) -> list:
+def _children_window(
+    db: Session, user_id: str, folder_id: str, offset: int, fetch: int
+) -> list[Folder | File]:
     """Fetch ``fetch`` rows of the folders-then-files stream starting at
     ``offset``. Folders sort before files in the combined stream; paging runs
     across both tables at the DB level (LIMIT/OFFSET) so a whole folder is
@@ -67,7 +69,7 @@ def _children_window(db: Session, user_id: str, folder_id: str, offset: int, fet
         .where(Folder.owner_id == user_id, Folder.parent_folder_id == folder_id)
     ) or 0
 
-    rows: list = []
+    rows: list[Folder | File] = []
     if offset < folder_count:
         rows.extend(
             db.execute(
