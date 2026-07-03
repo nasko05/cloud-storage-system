@@ -7,12 +7,14 @@ of duplicated query logic.
 
 from __future__ import annotations
 
+from collections import deque
 from collections.abc import Iterable
-from datetime import datetime
+from datetime import datetime, timedelta
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from .config import settings
 from .errors import ApiError
 from .models import File, Folder, PublicLink, Share
 from .utils import now_utc
@@ -25,10 +27,6 @@ ROOT_FOLDER_ID = "root"
 
 def get_file(db: Session, file_id: str) -> File | None:
     return db.get(File, file_id)
-
-
-def get_folder(db: Session, folder_id: str) -> Folder | None:
-    return db.get(Folder, folder_id)
 
 
 def require_owned_file(db: Session, user_id: str, file_id: str) -> File:
@@ -64,6 +62,29 @@ def user_storage_usage(db: Session, user_id: str, *, exclude_file_id: str | None
     if exclude_file_id is not None:
         stmt = stmt.where(File.id != exclude_file_id)
     return int(db.scalar(stmt) or 0)
+
+
+def collect_subtree(db: Session, owner_id: str, root_id: str) -> tuple[list[Folder], list[File]]:
+    """BFS the folder tree under ``root_id`` (exclusive of the root itself),
+    returning every owned descendant folder and file. Shared by recursive
+    folder delete and archive collection."""
+    folders: list[Folder] = []
+    files: list[File] = []
+    queue = deque([root_id])
+    while queue:
+        parent_id = queue.popleft()
+        child_folders = db.execute(
+            select(Folder).where(Folder.owner_id == owner_id, Folder.parent_folder_id == parent_id)
+        ).scalars().all()
+        for child in child_folders:
+            folders.append(child)
+            queue.append(child.id)
+        files.extend(
+            db.execute(
+                select(File).where(File.owner_id == owner_id, File.parent_folder_id == parent_id)
+            ).scalars().all()
+        )
+    return folders, files
 
 
 # --- Invariants -------------------------------------------------------------
@@ -107,6 +128,20 @@ def is_descendant_folder(
 
 # --- Shares -----------------------------------------------------------------
 
+def expiry_from_days(days: int | None) -> datetime:
+    """Resolve an ``expiryDays`` payload value (``None`` means the configured
+    default) into an absolute naive-UTC expiry, enforcing the 1–365 range.
+    Shared by the share and public-link routers."""
+    resolved = settings.share_expiry_days if days is None else days
+    try:
+        resolved = int(resolved)
+    except (TypeError, ValueError):
+        raise ApiError(400, "expiryDays must be an integer") from None
+    if resolved < 1 or resolved > 365:
+        raise ApiError(400, "expiryDays must be between 1 and 365")
+    return now_utc() + timedelta(days=resolved)
+
+
 def active_share(
     db: Session, file_id: str, principals: Iterable[tuple[str, str]]
 ) -> Share | None:
@@ -120,7 +155,7 @@ def active_share(
     stmt = select(Share).where(
         Share.file_id == file_id,
         or_(*clauses),
-        _active_window(Share.expires_at, now),
+        active_window(Share.expires_at, now),
     )
     return db.execute(stmt).scalars().first()
 
@@ -134,7 +169,7 @@ def derive_file_flags(db: Session, file_ids: list[str]) -> dict[str, dict[str, b
     now = now_utc()
     shared_ids = db.execute(
         select(Share.file_id)
-        .where(Share.file_id.in_(file_ids), _active_window(Share.expires_at, now))
+        .where(Share.file_id.in_(file_ids), active_window(Share.expires_at, now))
         .distinct()
     ).scalars()
     for fid in shared_ids:
@@ -142,7 +177,7 @@ def derive_file_flags(db: Session, file_ids: list[str]) -> dict[str, dict[str, b
 
     linked_ids = db.execute(
         select(PublicLink.file_id)
-        .where(PublicLink.file_id.in_(file_ids), _active_window(PublicLink.expires_at, now))
+        .where(PublicLink.file_id.in_(file_ids), active_window(PublicLink.expires_at, now))
         .distinct()
     ).scalars()
     for fid in linked_ids:
@@ -151,7 +186,8 @@ def derive_file_flags(db: Session, file_ids: list[str]) -> dict[str, dict[str, b
     return flags
 
 
-def _active_window(column, now: datetime):
+def active_window(column, now: datetime):
+    """SQL predicate for "not expired": a null expiry never expires."""
     return or_(column.is_(None), column > now)
 
 

@@ -2,12 +2,27 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from .deps import CurrentUser
+
 PrincipalType = str  # "email" | "user_sub"
 _VALID_TYPES = ("email", "user_sub")
 
 
-def infer_principal_type(value: str) -> PrincipalType:
+def _infer_principal_type(value: str) -> PrincipalType:
     return "email" if "@" in value else "user_sub"
+
+
+def user_principals(user: CurrentUser) -> list[tuple[str, str]]:
+    """The share principals the current user matches: their stable id, plus
+    their email when it differs. The single definition of that rule, shared by
+    the download check and the inbound-shares listing."""
+    principals = [("user_sub", user.id)]
+    if user.email and user.email != user.id:
+        principals.append(("email", user.email))
+    return principals
 
 
 def parse_principal_path(value: str | None) -> tuple[str | None, str | None]:
@@ -28,4 +43,4 @@ def parse_principal_path(value: str | None) -> tuple[str | None, str | None]:
     raw = value.strip()
     if not raw:
         return None, None
-    return infer_principal_type(raw), raw
+    return _infer_principal_type(raw), raw

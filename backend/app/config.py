@@ -13,6 +13,11 @@ from typing import Annotated, Literal
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
+# Single source of truth for the agent's provider defaults; app.agent.config
+# reuses these for its empty-string fallbacks.
+DEFAULT_AGENT_MODEL = "qwen/qwen3.6-27b"
+DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_prefix="DRIVE_", env_file=".env", extra="ignore")
@@ -90,8 +95,8 @@ class Settings(BaseSettings):
     # POST /v2/agent/chat returns 400). Reading a file's contents sends its text
     # to the configured model provider, so the feature is strictly opt-in.
     openrouter_api_key: str = ""
-    agent_model: str = "qwen/qwen3.6-27b"
-    openrouter_base_url: str = "https://openrouter.ai/api/v1"
+    agent_model: str = DEFAULT_AGENT_MODEL
+    openrouter_base_url: str = DEFAULT_OPENROUTER_BASE_URL
     agent_max_steps: int = 8
 
     # Behaviour

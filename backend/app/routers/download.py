@@ -11,6 +11,7 @@ from ..config import settings
 from ..deps import CurrentUser, get_current_user, get_db
 from ..errors import ApiError
 from ..permissions import can_download
+from ..principals import user_principals
 from ..services import active_share, get_file
 from ..utils import iso
 
@@ -31,10 +32,7 @@ def issue_download_url(
     is_owner = file.owner_id == user.id
     share = None
     if not is_owner:
-        principals = [("user_sub", user.id)]
-        if user.email and user.email != user.id:
-            principals.append(("email", user.email))
-        share = active_share(db, file_id, principals)
+        share = active_share(db, file_id, user_principals(user))
         if share is None:
             raise ApiError(403, "Access denied")
         if not can_download(share.permission):

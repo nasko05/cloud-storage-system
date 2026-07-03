@@ -2,21 +2,20 @@
 
 from __future__ import annotations
 
-from collections import deque
-
-from fastapi import APIRouter, Depends, Header, Query
+from fastapi import APIRouter, Depends, Query
 from fastapi.responses import JSONResponse
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from .. import storage
-from ..deps import CurrentUser, get_current_user, get_db
+from ..deps import CurrentUser, IdempotencyKey, get_current_user, get_db
 from ..errors import ApiError
-from ..idempotency import run_idempotent
+from ..idempotency import idempotent_response
 from ..models import File, Folder
-from ..pagination import decode_cursor, encode_cursor, normalize_limit
+from ..pagination import page_params, page_response
 from ..schemas import CreateFolderRequest, PatchFolderRequest
 from ..services import (
+    collect_subtree,
     create_folder_core,
     derive_file_flags,
     folder_exists_for_owner,
@@ -39,8 +38,7 @@ def list_children(
     if not folder_exists_for_owner(db, user.id, folder_id):
         raise ApiError(404, "Folder not found")
 
-    page_size = normalize_limit(limit, default=100, max_value=200)
-    offset = decode_cursor(cursor)
+    page_size, offset = page_params(limit, cursor, default=100)
     fetch = page_size + 1  # one extra row tells us whether another page exists
 
     # Folders sort before files in the combined stream. Page across both tables
@@ -76,40 +74,35 @@ def list_children(
             ).scalars().all()
         )
 
-    has_more = len(rows) > page_size
-    window = rows[:page_size]
-
-    page_file_ids = [row.id for row in window if isinstance(row, File)]
+    page_file_ids = [row.id for row in rows[:page_size] if isinstance(row, File)]
     flags = derive_file_flags(db, page_file_ids)
 
-    items: list[dict] = []
-    for row in window:
-        if isinstance(row, Folder):
-            items.append({
-                "type": "folder",
-                "folderId": row.id,
-                "name": row.name,
-                "parentFolderId": row.parent_folder_id,
-                "createdAt": iso(row.created_at),
-                "updatedAt": iso(row.updated_at),
-            })
-        else:
-            items.append({
-                "type": "file",
-                "fileId": row.id,
-                "name": row.filename,
-                "parentFolderId": row.parent_folder_id,
-                "size": row.size,
-                "contentType": row.content_type,
-                "status": row.status,
-                "isShared": flags[row.id]["isShared"],
-                "hasPublicLink": flags[row.id]["hasPublicLink"],
-                "createdAt": iso(row.created_at),
-                "updatedAt": iso(row.updated_at),
-            })
+    return page_response(rows, page_size, offset, lambda row: _serialize_child(row, flags))
 
-    next_cursor = encode_cursor(offset + page_size) if has_more else None
-    return {"items": items, "nextCursor": next_cursor}
+
+def _serialize_child(row: Folder | File, flags: dict[str, dict[str, bool]]) -> dict:
+    if isinstance(row, Folder):
+        return {
+            "type": "folder",
+            "folderId": row.id,
+            "name": row.name,
+            "parentFolderId": row.parent_folder_id,
+            "createdAt": iso(row.created_at),
+            "updatedAt": iso(row.updated_at),
+        }
+    return {
+        "type": "file",
+        "fileId": row.id,
+        "name": row.filename,
+        "parentFolderId": row.parent_folder_id,
+        "size": row.size,
+        "contentType": row.content_type,
+        "status": row.status,
+        "isShared": flags[row.id]["isShared"],
+        "hasPublicLink": flags[row.id]["hasPublicLink"],
+        "createdAt": iso(row.created_at),
+        "updatedAt": iso(row.updated_at),
+    }
 
 
 @router.post("/{folder_id}/folders", status_code=201)
@@ -118,14 +111,13 @@ def create_folder(
     payload: CreateFolderRequest,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         folder = create_folder_core(db, user.id, folder_id, payload.name or payload.folderName)
         return 201, {"folderId": folder.id, "name": folder.name, "parentFolderId": folder_id}
 
-    status, body = run_idempotent(db, user.id, f"folders-create-{folder_id}", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, f"folders-create-{folder_id}", idempotency_key, action)
 
 
 @router.patch("/{folder_id}")
@@ -134,7 +126,7 @@ def patch_folder(
     payload: PatchFolderRequest,
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         if payload.newName is None and payload.destinationFolderId is None:
@@ -156,8 +148,7 @@ def patch_folder(
             "parentFolderId": folder.parent_folder_id,
         }
 
-    status, body = run_idempotent(db, user.id, f"folders-patch-{folder_id}", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, f"folders-patch-{folder_id}", idempotency_key, action)
 
 
 @router.delete("/{folder_id}")
@@ -166,7 +157,7 @@ def delete_folder(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
     recursive: bool = Query(default=False),
-    idempotency_key: str | None = Header(default=None, alias="Idempotency-Key"),
+    idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
         folder = require_owned_folder(db, user.id, folder_id)
@@ -197,25 +188,8 @@ def delete_folder(
                 "deletedFiles": 0,
             }
 
-        folders_to_delete = [folder]
-        files_to_delete: list[File] = []
-        queue = deque([folder_id])
-        while queue:
-            parent_id = queue.popleft()
-            child_folders = db.execute(
-                select(Folder).where(
-                    Folder.owner_id == user.id, Folder.parent_folder_id == parent_id
-                )
-            ).scalars().all()
-            for child in child_folders:
-                folders_to_delete.append(child)
-                queue.append(child.id)
-            child_files = db.execute(
-                select(File).where(
-                    File.owner_id == user.id, File.parent_folder_id == parent_id
-                )
-            ).scalars().all()
-            files_to_delete.extend(child_files)
+        sub_folders, files_to_delete = collect_subtree(db, user.id, folder_id)
+        folders_to_delete = [folder, *sub_folders]
 
         for file in files_to_delete:
             storage.delete(file.storage_key)
@@ -232,5 +206,4 @@ def delete_folder(
             "deletedFiles": len(files_to_delete),
         }
 
-    status, body = run_idempotent(db, user.id, f"folders-delete-{folder_id}", idempotency_key, action)
-    return JSONResponse(status_code=status, content=body)
+    return idempotent_response(db, user.id, f"folders-delete-{folder_id}", idempotency_key, action)

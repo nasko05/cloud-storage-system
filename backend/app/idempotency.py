@@ -11,6 +11,7 @@ import hashlib
 from collections.abc import Callable
 from datetime import timedelta
 
+from fastapi.responses import JSONResponse
 from sqlalchemy.orm import Session
 
 from .config import settings
@@ -18,6 +19,19 @@ from .models import IdempotencyRecord
 from .utils import now_utc
 
 ActionResult = tuple[int, dict]
+
+
+def idempotent_response(
+    db: Session,
+    user_id: str,
+    scope: str,
+    idempotency_key: str | None,
+    action: Callable[[], ActionResult],
+) -> JSONResponse:
+    """Run ``action`` under :func:`run_idempotent` and wrap the ``(status,
+    body)`` result as JSON — the shared tail of every mutating route."""
+    status_code, body = run_idempotent(db, user_id, scope, idempotency_key, action)
+    return JSONResponse(status_code=status_code, content=body)
 
 
 def _record_id(user_id: str, scope: str, key: str) -> str:

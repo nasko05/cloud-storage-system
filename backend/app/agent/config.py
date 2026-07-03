@@ -9,10 +9,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from ..config import settings
-
-DEFAULT_MODEL = "qwen/qwen3.6-27b"
-DEFAULT_BASE_URL = "https://openrouter.ai/api/v1"
+from ..config import DEFAULT_AGENT_MODEL, DEFAULT_OPENROUTER_BASE_URL, settings
 
 
 @dataclass(frozen=True)
@@ -32,8 +29,8 @@ class AgentConfig:
     def from_settings(cls) -> AgentConfig:
         return cls(
             api_key=settings.openrouter_api_key.strip(),
-            model=(settings.agent_model or DEFAULT_MODEL).strip(),
-            base_url=(settings.openrouter_base_url or DEFAULT_BASE_URL).strip().rstrip("/"),
+            model=(settings.agent_model or DEFAULT_AGENT_MODEL).strip(),
+            base_url=(settings.openrouter_base_url or DEFAULT_OPENROUTER_BASE_URL).strip().rstrip("/"),
             # Clamp to a sane range so a typo can't run an unbounded tool loop.
             max_steps=max(1, min(24, settings.agent_max_steps)),
         )

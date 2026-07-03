@@ -11,7 +11,6 @@ import logging
 import queue
 import threading
 import zipfile
-from collections import deque
 from os.path import splitext
 
 from sqlalchemy import select
@@ -20,6 +19,7 @@ from . import storage
 from .config import settings
 from .database import SessionLocal
 from .models import ArchiveJob, File, Folder
+from .services import collect_subtree
 from .utils import now_utc
 
 logger = logging.getLogger("archive")
@@ -130,18 +130,9 @@ def _collect_files(db, owner_id, file_ids, folder_ids) -> list[File]:
 
 
 def _collect_folder(db, owner_id, root_id, files_by_id) -> None:
-    pending = deque([root_id])
-    while pending:
-        parent_id = pending.popleft()
-        children = db.execute(
-            select(Folder).where(Folder.owner_id == owner_id, Folder.parent_folder_id == parent_id)
-        ).scalars().all()
-        for child in children:
-            pending.append(child.id)
-        for file in db.execute(
-            select(File).where(File.owner_id == owner_id, File.parent_folder_id == parent_id)
-        ).scalars().all():
-            files_by_id.setdefault(file.id, file)
+    _, files = collect_subtree(db, owner_id, root_id)
+    for file in files:
+        files_by_id.setdefault(file.id, file)
 
 
 # --- ZIP assembly -----------------------------------------------------------
