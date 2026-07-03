@@ -19,7 +19,7 @@ ARG VITE_PERSONAL_AREA_URL=""
 RUN VITE_PERSONAL_AREA_URL="$VITE_PERSONAL_AREA_URL" npm run build
 
 # ---- Stage 2: runtime ----
-FROM python:3.11-slim-bookworm AS runtime
+FROM python:3.14-slim-bookworm AS runtime
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
     DRIVE_FRONTEND_DIR=/app/static \
