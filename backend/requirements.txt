@@ -8,7 +8,7 @@ PyJWT==2.10.1
 psycopg2-binary==2.9.10
 alembic==1.14.0
 clamd==1.0.2
-webauthn==2.5.2
+webauthn==3.0.0
 # AI reorganization assistant: outbound calls to the model provider and text
 # extraction for the read_file tool. The feature is disabled unless a key is set,
 # but these are imported at startup so they belong in the runtime image.
