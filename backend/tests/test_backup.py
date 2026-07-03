@@ -15,12 +15,12 @@ def test_backup_restore_round_trip(client, tmp_path):
     # Simulate data loss: drop the file (row + blob).
     client.delete(f"/v2/files/{file_id}", headers=auth_header(token))
     before = client.get("/v2/folders/root/children", headers=auth_header(token)).json()["items"]
-    assert "keep.txt" not in {i["name"] for i in before}
+    assert "keep.txt" not in {i["name"] if i["type"] == "folder" else i["filename"] for i in before}
 
     backup.restore_backup(bundle, replace=True)
 
     items = client.get("/v2/folders/root/children", headers=auth_header(token)).json()["items"]
-    assert {"Docs", "keep.txt"} <= {i["name"] for i in items}
+    assert {"Docs", "keep.txt"} <= {i["name"] if i["type"] == "folder" else i["filename"] for i in items}
 
     # Blob bytes came back too.
     dl = client.post(f"/v2/download/files/{file_id}", json={}, headers=auth_header(token)).json()

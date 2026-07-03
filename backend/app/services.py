@@ -201,14 +201,13 @@ def active_window(column, now: datetime):
 # caller's job — so a failure mid-batch rolls the whole plan back.
 
 
-def create_folder_core(db: Session, owner_id: str, parent_folder_id: str, name: object) -> Folder:
+def create_folder_core(db: Session, owner_id: str, parent_folder_id: str, name: str | None) -> Folder:
     """Create a folder under ``parent_folder_id``. Mirrors the checks in
     ``routers/folders.py:create_folder``."""
     if not folder_exists_for_owner(db, owner_id, parent_folder_id):
         raise ApiError(404, "Parent folder not found")
-    if not is_valid_name(name):
+    if not is_valid_name(name) or name is None:
         raise ApiError(400, "Valid folder name required")
-    assert isinstance(name, str)  # narrowed by is_valid_name
     clean = name.strip()
     if name_conflict(db, owner_id, parent_folder_id, Folder, clean):
         raise ApiError(409, "A folder with that name already exists in destination folder")

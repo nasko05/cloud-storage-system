@@ -25,7 +25,7 @@ def test_upload_lifecycle_and_listing(client):
     assert final.json()["size"] == 11
 
     listing = client.get("/v2/folders/root/children", headers=headers).json()
-    names = [item["name"] for item in listing["items"]]
+    names = [item["filename"] for item in listing["items"]]
     assert "report.txt" in names
 
 

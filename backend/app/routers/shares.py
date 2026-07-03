@@ -14,7 +14,14 @@ from ..models import File, Share
 from ..pagination import page_params, page_response
 from ..permissions import is_valid_permission
 from ..principals import parse_principal_path, user_principals
-from ..schemas import PatchShareRequest, PutShareRequest
+from ..schemas import (
+    DeleteShareOut,
+    FileShareOut,
+    InboundShareOut,
+    PatchShareRequest,
+    PutShareRequest,
+    ShareOut,
+)
 from ..services import active_window, expiry_from_days, require_owned_file
 from ..utils import iso, now_utc
 
@@ -40,18 +47,18 @@ def _find_share(db: Session, file_id: str, principal_type: str, principal_value:
 
 
 def _serialize_inbound(share: Share, file: File) -> dict:
-    return {
-        "fileId": share.file_id,
-        "filename": file.filename,
-        "ownerId": file.owner_id,
-        "ownerEmail": file.owner_email,
-        "permission": share.permission,
-        "principalType": share.principal_type,
-        "principalValue": share.principal_value,
-        "principalDisplay": share.principal_display,
-        "sharedAt": iso(share.shared_at),
-        "expiresAt": iso(share.expires_at),
-    }
+    return InboundShareOut(
+        fileId=share.file_id,
+        filename=file.filename,
+        ownerId=file.owner_id,
+        ownerEmail=file.owner_email,
+        permission=share.permission,
+        principalType=share.principal_type,
+        principalValue=share.principal_value,
+        principalDisplay=share.principal_display,
+        sharedAt=iso(share.shared_at),
+        expiresAt=iso(share.expires_at),
+    ).model_dump()
 
 
 @router.get("/v2/shares/inbound")
@@ -106,14 +113,14 @@ def list_file_shares(
         shares,
         page_size,
         offset,
-        lambda s: {
-            "principalType": s.principal_type,
-            "principalValue": s.principal_value,
-            "principalDisplay": s.principal_display,
-            "permission": s.permission,
-            "sharedAt": iso(s.shared_at),
-            "expiresAt": iso(s.expires_at),
-        },
+        lambda s: FileShareOut(
+            principalType=s.principal_type,
+            principalValue=s.principal_value,
+            principalDisplay=s.principal_display,
+            permission=s.permission,
+            sharedAt=iso(s.shared_at),
+            expiresAt=iso(s.expires_at),
+        ).model_dump(),
     )
 
 
@@ -149,13 +156,13 @@ def put_share(
         share.expires_at = expires_at
         db.flush()
 
-        return 200, {
-            "fileId": file_id,
-            "principalType": principal_type,
-            "principalValue": principal_value,
-            "permission": payload.permission,
-            "expiresAt": iso(expires_at),
-        }
+        return 200, ShareOut(
+            fileId=file_id,
+            principalType=principal_type,
+            principalValue=principal_value,
+            permission=payload.permission,
+            expiresAt=iso(expires_at),
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"shares-put-{file_id}-{principal}", idempotency_key, action)
 
@@ -190,13 +197,13 @@ def patch_share(
             raise ApiError(400, "Nothing to update")
         db.flush()
 
-        return 200, {
-            "fileId": file_id,
-            "principalType": principal_type,
-            "principalValue": principal_value,
-            "permission": share.permission,
-            "expiresAt": iso(share.expires_at),
-        }
+        return 200, ShareOut(
+            fileId=file_id,
+            principalType=principal_type,
+            principalValue=principal_value,
+            permission=share.permission,
+            expiresAt=iso(share.expires_at),
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"shares-patch-{file_id}-{principal}", idempotency_key, action)
 
@@ -219,11 +226,11 @@ def delete_share(
 
         db.delete(share)
         db.flush()
-        return 200, {
-            "message": "Share revoked",
-            "fileId": file_id,
-            "principalType": principal_type,
-            "principalValue": principal_value,
-        }
+        return 200, DeleteShareOut(
+            message="Share revoked",
+            fileId=file_id,
+            principalType=principal_type,
+            principalValue=principal_value,
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"shares-delete-{file_id}-{principal}", idempotency_key, action)

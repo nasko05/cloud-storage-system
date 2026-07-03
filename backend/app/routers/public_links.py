@@ -12,7 +12,14 @@ from ..errors import ApiError
 from ..idempotency import idempotent_response
 from ..models import PublicLink
 from ..pagination import page_params, page_response
-from ..schemas import CreatePublicLinkRequest, PatchPublicLinkRequest
+from ..schemas import (
+    CreatePublicLinkRequest,
+    DeletePublicLinkOut,
+    PatchPublicLinkOut,
+    PatchPublicLinkRequest,
+    PublicLinkCreatedOut,
+    PublicLinkOut,
+)
 from ..security import hash_password
 from ..services import active_window, expiry_from_days, require_owned_file
 from ..utils import iso, now_utc
@@ -50,14 +57,14 @@ def create_public_link(
         )
         db.add(link)
         db.flush()
-        return 201, {
-            "token": link.token,
-            "fileId": file_id,
-            "filename": file.filename,
-            "hasPassword": bool(payload.password),
-            "downloadCount": 0,
-            "expiresAt": iso(expires_at),
-        }
+        return 201, PublicLinkCreatedOut(
+            token=link.token,
+            fileId=file_id,
+            filename=file.filename,
+            hasPassword=bool(payload.password),
+            downloadCount=0,
+            expiresAt=iso(expires_at),
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"public-links-create-{file_id}", idempotency_key, action)
 
@@ -88,16 +95,16 @@ def list_public_links(
         links,
         page_size,
         offset,
-        lambda link: {
-            "token": link.token,
-            "fileId": link.file_id,
-            "filename": link.file.filename if link.file else None,
-            "hasPassword": bool(link.password_hash),
-            "downloadCount": link.download_count,
-            "createdAt": iso(link.created_at),
-            "updatedAt": iso(link.updated_at),
-            "expiresAt": iso(link.expires_at),
-        },
+        lambda link: PublicLinkOut(
+            token=link.token,
+            fileId=link.file_id,
+            filename=link.file.filename if link.file else None,
+            hasPassword=bool(link.password_hash),
+            downloadCount=link.download_count,
+            createdAt=iso(link.created_at),
+            updatedAt=iso(link.updated_at),
+            expiresAt=iso(link.expires_at),
+        ).model_dump(),
     )
 
 
@@ -124,11 +131,11 @@ def patch_public_link(
         if not changed:
             raise ApiError(400, "Nothing to update")
         db.flush()
-        return 200, {
-            "token": token,
-            "hasPassword": bool(link.password_hash),
-            "expiresAt": iso(link.expires_at),
-        }
+        return 200, PatchPublicLinkOut(
+            token=token,
+            hasPassword=bool(link.password_hash),
+            expiresAt=iso(link.expires_at),
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"public-links-patch-{token}", idempotency_key, action)
 
@@ -144,6 +151,6 @@ def delete_public_link(
         link = _require_owned_link(db, user.id, token)
         db.delete(link)
         db.flush()
-        return 200, {"message": "Public link deleted", "token": token}
+        return 200, DeletePublicLinkOut(message="Public link deleted", token=token).model_dump()
 
     return idempotent_response(db, user.id, f"public-links-delete-{token}", idempotency_key, action)

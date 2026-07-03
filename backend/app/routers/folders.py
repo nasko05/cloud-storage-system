@@ -13,7 +13,16 @@ from ..errors import ApiError
 from ..idempotency import idempotent_response
 from ..models import File, Folder
 from ..pagination import page_params, page_response
-from ..schemas import CreateFolderRequest, PatchFolderRequest
+from ..schemas import (
+    ChildFileOut,
+    ChildFolderOut,
+    CreateFolderOut,
+    CreateFolderRequest,
+    DeleteFolderOut,
+    MessageOut,
+    PatchFolderOut,
+    PatchFolderRequest,
+)
 from ..services import (
     collect_subtree,
     create_folder_core,
@@ -82,27 +91,25 @@ def list_children(
 
 def _serialize_child(row: Folder | File, flags: dict[str, dict[str, bool]]) -> dict:
     if isinstance(row, Folder):
-        return {
-            "type": "folder",
-            "folderId": row.id,
-            "name": row.name,
-            "parentFolderId": row.parent_folder_id,
-            "createdAt": iso(row.created_at),
-            "updatedAt": iso(row.updated_at),
-        }
-    return {
-        "type": "file",
-        "fileId": row.id,
-        "name": row.filename,
-        "parentFolderId": row.parent_folder_id,
-        "size": row.size,
-        "contentType": row.content_type,
-        "status": row.status,
-        "isShared": flags[row.id]["isShared"],
-        "hasPublicLink": flags[row.id]["hasPublicLink"],
-        "createdAt": iso(row.created_at),
-        "updatedAt": iso(row.updated_at),
-    }
+        return ChildFolderOut(
+            folderId=row.id,
+            name=row.name,
+            parentFolderId=row.parent_folder_id,
+            createdAt=iso(row.created_at),
+            updatedAt=iso(row.updated_at),
+        ).model_dump()
+    return ChildFileOut(
+        fileId=row.id,
+        filename=row.filename,
+        parentFolderId=row.parent_folder_id,
+        size=row.size,
+        contentType=row.content_type,
+        status=row.status,
+        isShared=flags[row.id]["isShared"],
+        hasPublicLink=flags[row.id]["hasPublicLink"],
+        createdAt=iso(row.created_at),
+        updatedAt=iso(row.updated_at),
+    ).model_dump()
 
 
 @router.post("/{folder_id}/folders", status_code=201)
@@ -114,8 +121,10 @@ def create_folder(
     idempotency_key: str | None = IdempotencyKey,
 ) -> JSONResponse:
     def action() -> tuple[int, dict]:
-        folder = create_folder_core(db, user.id, folder_id, payload.name or payload.folderName)
-        return 201, {"folderId": folder.id, "name": folder.name, "parentFolderId": folder_id}
+        folder = create_folder_core(db, user.id, folder_id, payload.name)
+        return 201, CreateFolderOut(
+            folderId=folder.id, name=folder.name, parentFolderId=folder_id
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"folders-create-{folder_id}", idempotency_key, action)
 
@@ -140,13 +149,13 @@ def patch_folder(
             dest_folder_id=payload.destinationFolderId,
         )
         if not changed:
-            return 200, {"message": "No changes"}
-        return 200, {
-            "message": "Folder updated",
-            "folderId": folder.id,
-            "name": folder.name,
-            "parentFolderId": folder.parent_folder_id,
-        }
+            return 200, MessageOut(message="No changes").model_dump()
+        return 200, PatchFolderOut(
+            message="Folder updated",
+            folderId=folder.id,
+            name=folder.name,
+            parentFolderId=folder.parent_folder_id,
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"folders-patch-{folder_id}", idempotency_key, action)
 
@@ -180,13 +189,13 @@ def delete_folder(
                 )
             db.delete(folder)
             db.flush()
-            return 200, {
-                "message": "Folder deleted",
-                "folderId": folder_id,
-                "recursive": False,
-                "deletedFolders": 1,
-                "deletedFiles": 0,
-            }
+            return 200, DeleteFolderOut(
+                message="Folder deleted",
+                folderId=folder_id,
+                recursive=False,
+                deletedFolders=1,
+                deletedFiles=0,
+            ).model_dump()
 
         sub_folders, files_to_delete = collect_subtree(db, user.id, folder_id)
         folders_to_delete = [folder, *sub_folders]
@@ -198,12 +207,12 @@ def delete_folder(
             db.delete(fld)
         db.flush()
 
-        return 200, {
-            "message": "Folder deleted",
-            "folderId": folder_id,
-            "recursive": True,
-            "deletedFolders": len(folders_to_delete),
-            "deletedFiles": len(files_to_delete),
-        }
+        return 200, DeleteFolderOut(
+            message="Folder deleted",
+            folderId=folder_id,
+            recursive=True,
+            deletedFolders=len(folders_to_delete),
+            deletedFiles=len(files_to_delete),
+        ).model_dump()
 
     return idempotent_response(db, user.id, f"folders-delete-{folder_id}", idempotency_key, action)

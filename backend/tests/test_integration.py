@@ -15,6 +15,11 @@ def _wait_archive(client, token, job_id, timeout=15.0):
     raise AssertionError("archive timed out")
 
 
+def _display_name(item):
+    """Folders expose `name`, files expose `filename`."""
+    return item["name"] if item["type"] == "folder" else item["filename"]
+
+
 def test_full_owner_and_recipient_journey(client):
     owner, owner_id, _ = register_and_login(client)
     recipient, _, recipient_email = register_and_login(client)
@@ -30,7 +35,7 @@ def test_full_owner_and_recipient_journey(client):
     assert client.patch(f"/v2/files/{report}", json={"newName": "annual.txt", "destinationFolderId": docs},
                         headers=oh).status_code == 200
     docs_items = client.get(f"/v2/folders/{docs}/children", headers=oh).json()["items"]
-    assert any(i.get("name") == "annual.txt" for i in docs_items)
+    assert any(i.get("filename") == "annual.txt" for i in docs_items)
 
     # Share with download permission; recipient sees it inbound and downloads it.
     client.put(f"/v2/files/{report}/shares/email:{recipient_email}",
@@ -69,7 +74,7 @@ def test_full_owner_and_recipient_journey(client):
     # Recursively delete the tree; everything is gone.
     deleted = client.delete(f"/v2/folders/{docs}?recursive=true", headers=oh)
     assert deleted.status_code == 200 and deleted.json()["deletedFiles"] == 1
-    remaining = {i["name"] for i in client.get("/v2/folders/root/children", headers=oh).json()["items"]}
+    remaining = {_display_name(i) for i in client.get("/v2/folders/root/children", headers=oh).json()["items"]}
     assert "Docs" not in remaining and "root-note.txt" in remaining
 
 

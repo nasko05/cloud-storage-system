@@ -15,7 +15,7 @@ from ..deps import CurrentUser, IdempotencyKey, get_current_user, get_db
 from ..errors import ApiError
 from ..idempotency import idempotent_response
 from ..models import ArchiveJob
-from ..schemas import CreateArchiveRequest
+from ..schemas import ArchiveQueuedOut, CreateArchiveRequest
 from ..utils import iso, now_utc
 
 router = APIRouter(prefix="/v2/download/archives", tags=["archive"])
@@ -60,7 +60,7 @@ def create_archive(
         db.flush()
         db.commit()  # persist before the worker (separate session) picks it up
         archive.enqueue(job.id)
-        return 202, {"archiveJobId": job.id, "status": "queued"}
+        return 202, ArchiveQueuedOut(archiveJobId=job.id, status="queued").model_dump()
 
     return idempotent_response(db, user.id, "archive-queue", idempotency_key, action)
 
