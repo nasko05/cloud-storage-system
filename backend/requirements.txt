@@ -1,12 +1,12 @@
-fastapi==0.115.6
-uvicorn[standard]==0.34.0
-SQLAlchemy==2.0.36
-pydantic==2.10.4
-pydantic-settings==2.7.1
-email-validator==2.2.0
-PyJWT==2.10.1
-psycopg2-binary==2.9.10
-alembic==1.14.0
+fastapi==0.139.0
+uvicorn[standard]==0.50.0
+SQLAlchemy==2.0.51
+pydantic==2.13.4
+pydantic-settings==2.14.2
+email-validator==2.3.0
+PyJWT==2.13.0
+psycopg2-binary==2.9.12
+alembic==1.18.5
 clamd==1.0.2
 webauthn==2.5.2
 # AI reorganization assistant: outbound calls to the model provider and text
@@ -14,4 +14,4 @@ webauthn==2.5.2
 # but these are imported at startup so they belong in the runtime image.
 httpx==0.28.1
 pypdf==5.1.0
-python-docx==1.1.2
+python-docx==1.2.0
